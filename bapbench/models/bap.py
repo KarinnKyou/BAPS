@@ -219,10 +219,15 @@ class BAPTimeIndexed:
 
 @dataclass
 class BAPDisjunctive:
-    """Pairwise ordering formulation of min sum C_i: O(n^2) binaries and a
-    weaker LP relaxation than the time-indexed model.
+    """Pairwise ordering formulation of min sum C_i.
 
-    Vessels sharing a berth are ordered by a big-M disjunction.
+    Vessels sharing a berth are ordered by a big-M disjunction over their start
+    times rather than placed on a time grid, which keeps the ordering variables at
+    O(n^2). Berth closures and the crane limit are not expressible in that form
+    alone, so this model also carries a period structure: one binary per vessel and
+    candidate start period. The result is more variables than the time-indexed
+    model and a weaker LP relaxation, which is why it is used as a cross-check
+    rather than as the default.
     """
     inst: Instance
     objective: str = "sum_C"
@@ -234,7 +239,7 @@ class BAPDisjunctive:
 
     def build(self):
         inst = self.inst
-        n, m = inst.n, inst.m
+        n, m, T = inst.n, inst.m, inst.horizon
         M = self.big_m = safe_big_m(inst)
         prob = pulp.LpProblem(f"DBAP_DJ_{inst.name}", pulp.LpMinimize)
 
@@ -245,7 +250,22 @@ class BAPDisjunctive:
              for i in range(n)}
         z = {(i, j): prob.add_variable(f"z_{i}_{j}", cat="Binary")
              for i in range(n) for j in range(i + 1, n)}
-        self.x, self.b, self.z = x, b, z
+        # Candidate start periods per vessel and berth, empty when a closure
+        # leaves no unblocked handling window.
+        starts = {(i, k): [t for t in range(inst.vessels[i].arrive, T - inst.vessels[i].handle + 1)
+                           if not any(inst.blocked(k, tt)
+                                      for tt in range(t, t + inst.vessels[i].handle))]
+                  for i in range(n) for k in range(m)}
+        self._starts = starts
+        for i in range(n):
+            if not any(starts[(i, k)] for k in range(m)):
+                raise RuntimeError(
+                    f"vessel {inst.vessels[i].name} has no unblocked handling "
+                    f"window on any berth")
+
+        s = {(i, t): prob.add_variable(f"s_{i}_{t}", cat="Binary")
+             for i in range(n) for t in range(inst.vessels[i].arrive, T + 1)}
+        self.x, self.b, self.z, self.s = x, b, z, s
         self.problem = prob
 
         if self.objective == "sum_C":
@@ -260,6 +280,23 @@ class BAPDisjunctive:
             prob.addConstraint(pulp.lpSum(x[(i, k)] for k in range(m)) == 1,
                                name=f"assign_{i}")
 
+        # Link the start period of each vessel to its chosen berth: a start t is
+        # only admissible on berths where t is unblocked.
+        for i in range(n):
+            prob.addConstraint(pulp.lpSum(s[(i, t)] for t in range(inst.vessels[i].arrive,
+                                                                   T + 1)) == 1,
+                               name=f"start_one_{i}")
+            prob.addConstraint(
+                b[i] == pulp.lpSum(t * s[(i, t)]
+                                   for t in range(inst.vessels[i].arrive, T + 1)),
+                name=f"start_of_{i}")
+            for k in range(m):
+                for t in range(inst.vessels[i].arrive, T + 1):
+                    if t not in starts[(i, k)]:
+                        prob.addConstraint(
+                            s[(i, t)] + x[(i, k)] <= 1,
+                            name=f"closed_{i}_{k}_{t}")
+
         for i in range(n):
             for j in range(i + 1, n):
                 pi_, pj_ = inst.vessels[i].handle, inst.vessels[j].handle
@@ -272,6 +309,33 @@ class BAPDisjunctive:
                                        name=f"seqA_{i}_{j}_{k}")
                     prob.addConstraint(b[j] + pj_ <= b[i] + M * z[(i, j)] + M * (1 - both),
                                        name=f"seqB_{i}_{j}_{k}")
+
+        # Crane limit: the number of vessels handling at any period may not exceed
+        # the cranes available then. Occupancy per berth and period is the sum of
+        # the vessels whose chosen berth is k, whose start is at or before t, and
+        # whose handling has not finished by t.
+        if inst.quay_crane_limit is not None:
+            for t in range(T):
+                occupancy = []
+                for i in range(n):
+                    span = range(max(inst.vessels[i].arrive, t - inst.vessels[i].handle + 1),
+                                 t + 1)
+                    for k in range(m):
+                        if not any(tt in starts[(i, k)] for tt in span):
+                            continue
+                        for tp in span:
+                            if tp not in starts[(i, k)]:
+                                continue
+                            occ = prob.add_variable(f"occ_{i}_{k}_{t}_{tp}", cat="Binary")
+                            prob.addConstraint(occ <= x[(i, k)])
+                            prob.addConstraint(occ <= s[(i, tp)])
+                            prob.addConstraint(
+                                occ >= x[(i, k)] + s[(i, tp)] - 1)
+                            occupancy.append(occ)
+                cap = inst.crane_capacity(t)
+                if occupancy and cap is not None:
+                    prob.addConstraint(pulp.lpSum(occupancy) <= cap,
+                                       name=f"crane_{t}")
         return prob
 
     def solve(self) -> Schedule:

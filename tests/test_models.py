@@ -65,6 +65,34 @@ def test_both_formulations_agree(toy):
     assert ti.objective == pytest.approx(dj.objective)
 
 
+@pytest.mark.parametrize("slack", [2.0, 1.8, 1.6])
+def test_both_formulations_agree_with_closures_and_cranes(slack):
+    """The disjunctive model must honour closures and the crane limit.
+
+    It once encoded only non-overlap and quay capacity, so on a constrained
+    instance it returned a schedule that failed the independent check while
+    agreeing with the time-indexed model on unrestricted toy instances.
+    """
+    inst = make_hard_instance(f"both_{slack}", 6, 3, seed=20261014, slack=slack)
+    assert inst.tidal_windows and inst.quay_crane_limit is not None
+
+    ti = BAPTimeIndexed(inst).solve()
+    dj = BAPDisjunctive(inst).solve()
+    assert dj.feasible, dj.violations
+    assert ti.feasible and ti.objective == pytest.approx(dj.objective)
+
+    from bapbench.instances import Schedule
+    assert Schedule(assign=dict(dj.assign)).check(inst).feasible
+
+
+def test_disjunctive_rejects_an_instance_with_no_unblocked_window():
+    """A vessel with every berth closed for its whole stay cannot be scheduled."""
+    inst = make_toy_instance("blocked", 3, 2, seed=5, horizon=12)
+    inst.tidal_windows = {str(k): [(0, inst.horizon)] for k in range(inst.m)}
+    with pytest.raises(RuntimeError):
+        BAPDisjunctive(inst).build()
+
+
 def test_solution_respects_arrival_times(hard):
     sch = BAPTimeIndexed(hard).solve()
     assert sch.feasible

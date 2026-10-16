@@ -156,11 +156,13 @@ was unreachable for precisely the vessels it existed for. Which vessels are
 observable now follows from their scheduled arrival.
 
 **Checking the disjunctive formulation only on unrestricted instances hides its
-gaps.** `BAPDisjunctive` encodes berth non-overlap and quay capacity, but not
-berth closures or the crane limit, so on a constrained instance it returns a
-schedule that fails the independent feasibility check. It reports that honestly as
-`feasible=False`; it is not silently wrong. Use `BAPTimeIndexed` for instances
-with closures or a crane limit.
+gaps.** `BAPDisjunctive` originally encoded berth non-overlap and quay capacity
+but not berth closures or the crane limit, so on a constrained instance it
+returned a schedule failing the independent feasibility check while agreeing
+perfectly with the time-indexed model on unrestricted toy instances. It now
+encodes both, and both formulations agree on constrained instances. The general
+lesson: two implementations agreeing on the easy cases says nothing about whether
+either is complete, so cross-checks have to include the constrained regime.
 
 ## Limitations
 
