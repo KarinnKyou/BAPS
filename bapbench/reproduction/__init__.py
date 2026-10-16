@@ -7,6 +7,7 @@ type, so the method can be compared against the exact models on identical data.
 
 from __future__ import annotations
 
+from .comparison import compare_reproductions, imai_schedule, iris_schedule
 from .imai2001 import (
     INDIVIDUAL,
     INTERACT,
@@ -82,6 +83,7 @@ __all__ = [
     "SplitSchedule",
     "YalaouiSchedule",
     "alns",
+    "compare_reproductions",
     "dbap_instance_from_instance",
     "evaluate",
     "generate_instance",
@@ -89,8 +91,10 @@ __all__ = [
     "heuristic_hprtf",
     "hungarian",
     "idle_slack",
+    "imai_schedule",
     "individual",
     "initial_upper_bound",
+    "iris_schedule",
     "interact",
     "lb_spt",
     "lb_srpt",

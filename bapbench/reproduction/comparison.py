@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from ..heuristics.constructive import BASELINES
 from ..heuristics.metaheuristics import HEURISTICS
 from ..instances import Instance, Schedule
-from ..metrics import objective_value, sanity_check_schedule
+from ..metrics import gap_pct, objective_value, sanity_check_schedule
 from ..models.bap import BAPTimeIndexed
 from .imai2001 import INDIVIDUAL, solve_instance as imai_solve
 from .iris2017 import ALNSConfig, run_alns as iris_solve
@@ -85,12 +85,12 @@ def _rows_for(inst: Instance, objective: str, methods: dict, time_limit: float,
             problems = list(checked.violations)
             ok = checked.feasible
             if ok:
-                value = objective_value(inst, sch.assign, objective)
+                value = objective_value(sch.completion(inst), objective)
         else:
             problems = ["incomplete assignment"]
         gap = None
         if ok and value is not None and reference:
-            gap = round((value - reference) / reference * 100.0, 3)
+            gap = gap_pct(value, reference)
         rows.append({"instance": inst.name, "method": name, "objective": value,
                      "gap_pct": gap, "feasible": ok,
                      "violations": "; ".join(problems[:2]),
@@ -111,6 +111,11 @@ def compare_reproductions(inst: Instance, objective: str = "sum_C",
 
     The reference is the exact model's optimum when it proves one, because that is
     the only value all the methods can be scored against; the column says which.
+
+    Expect the Imai procedures to fail on an instance with tidal windows or a crane
+    limit: the DBAP it solves has neither, so a schedule that is feasible for its
+    own model need not be feasible here. Those rows carry the violation rather than
+    being dropped, because that is the comparison's result.
     """
     exact = BAPTimeIndexed(inst, objective=objective,
                            time_limit=time_limit).solve()
