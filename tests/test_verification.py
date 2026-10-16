@@ -87,12 +87,21 @@ def test_crane_failure_recovers_after_its_window():
     assert end > start
 
 
-def test_observed_arrivals_reveal_the_past_only():
+def test_observed_arrivals_hide_a_delay_until_it_is_due():
+    """A delayed vessel must not be revealed before its scheduled arrival."""
     planned = make_hard_instance("h", 8, 3, seed=1, slack=1.8)
+    scheduled = planned.vessels[0].arrive
     realised = apply_events(planned, [Event("arrival_delay", 0, 0, 6, "test")])
-    seen = observed_arrivals(realised, planned, now=4)
-    assert seen[0] == realised.vessels[0].arrive
-    assert seen[1] == planned.vessels[1].arrive
+    assert realised.vessels[0].arrive == scheduled + 6
+
+    before = observed_arrivals(realised, planned, now=1)
+    assert before[0] == scheduled
+
+    after = observed_arrivals(realised, planned, now=scheduled)
+    assert after[0] == scheduled + 6
+
+    untouched = [v.vid for v in planned.vessels if v.vid != 0]
+    assert all(before[vid] == planned.vessels[vid].arrive for vid in untouched)
 
 
 def test_rolling_horizon_produces_a_feasible_realised_schedule():

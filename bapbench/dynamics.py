@@ -114,10 +114,15 @@ def apply_events(inst: Instance, events: list[Event],
 
 def observed_arrivals(inst_true: Instance, planned: Instance,
                       now: int) -> dict[int, int]:
-    """Realised arrivals for observed vessels, planned values for the rest."""
+    """Realised arrivals for vessels already due, planned values for the rest.
+
+    A vessel counts as observed once its scheduled arrival has passed. Testing the
+    realised arrival against `now` instead would hide a delay: a vessel due at 6
+    but actually arriving at 15 is still reported as arriving at 6 until t=15.
+    """
     out = {}
     for v_true, v_plan in zip(inst_true.vessels, planned.vessels):
-        if v_true.arrive <= now:
+        if v_plan.arrive <= now:
             out[v_true.vid] = v_true.arrive
         else:
             out[v_plan.vid] = v_plan.arrive
