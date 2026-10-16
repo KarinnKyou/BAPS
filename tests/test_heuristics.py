@@ -38,6 +38,7 @@ from bapbench.heuristics.metaheuristics import (
     nbr_relocate,
     nbr_reverse,
     nbr_swap,
+    run_heuristics,
 )
 from bapbench.instances import make_hard_instance, make_toy_instance
 from bapbench.metrics import sanity_check_schedule
@@ -257,3 +258,28 @@ def test_run_all_baselines_covers_every_baseline(hard):
     for name, sch in out.items():
         if sch.feasible:
             assert sanity_check_schedule(hard, sch) == [], name
+
+
+def test_search_heuristics_never_receive_an_undefined_start(hard):
+    """LS and ILS seed from the constructive rules. On a tight instance every rule
+    can fail to decode, which left the seed undefined and crashed the search with
+    'NoneType is not subscriptable' rather than reporting that no schedule was
+    found. Either a schedule comes back, or the failure is explicit."""
+    for name in ("LS", "ILS"):
+        try:
+            sch = HEURISTICS[name](hard, "sum_C", 3)
+        except RuntimeError as exc:
+            assert "decodable" in str(exc) or "placement" in str(exc), name
+            continue
+        assert sch.feasible or sch.violations, name
+        if sch.feasible:
+            assert sanity_check_schedule(hard, sch) == [], name
+
+
+def test_run_heuristics_records_failures_instead_of_raising(hard):
+    """The aggregate entry point must survive a method that builds nothing."""
+    out = run_heuristics(hard, "sum_C", seed=3)
+    assert set(out) == set(HEURISTICS)
+    for name, sch in out.items():
+        if not sch.feasible:
+            assert sch.violations, f"{name} failed without a reason"

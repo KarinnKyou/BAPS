@@ -121,6 +121,52 @@ def local_search(inst: Instance, order: list[int], ev: Evaluator,
     return cur, cur_val
 
 
+def _best_seed(inst: Instance, objective: str, ev: Evaluator
+               ) -> tuple[list[int], float]:
+    """Cheapest decodable starting permutation, from the constructive rules.
+
+    The rules can all fail to decode on a tight instance, in which case every
+    candidate evaluates to infinity. Returning None to the search then crashes
+    with an unhelpful TypeError, so this falls back to the decoders with a restart
+    budget and reports clearly if even those cannot place every vessel.
+    """
+    from ..heuristics.constructive import (
+        PLACE_RESTARTS_BY_METHOD, fcfs, lpt, spt,
+    )
+
+    candidates: list[list[int]] = []
+    for fn in (lpt, fcfs, spt):
+        name = fn.__name__.upper()
+        try:
+            sch = fn(inst, objective)
+        except RuntimeError:
+            continue
+        order = sch.extra.get("order")
+        if order and sch.feasible:
+            candidates.append(list(order))
+
+    best, best_val = None, math.inf
+    for order in candidates:
+        v = ev(order)
+        if v < best_val:
+            best, best_val = order[:], v
+
+    if best is None:
+        # Every rule failed; a plain order plus the restart budget is the last
+        # resort, and it raises with the per-vessel windows if that fails too.
+        fallback = list(range(inst.n))
+        place_in_order(inst, fallback, "earliest_start",
+                       restarts=max(PLACE_RESTARTS_BY_METHOD.values()))
+        v = ev(fallback)
+        if v == math.inf:
+            raise RuntimeError(
+                f"no decodable starting permutation for {inst.name}: the "
+                f"constructive rules and the restart budget all failed to place "
+                f"every vessel")
+        best, best_val = fallback, v
+    return best, best_val
+
+
 def iterated_local_search(inst: Instance, objective: str = "sum_C",
                           *, iters: int = 60, seed: int = 20261014,
                           kicks: int = 3, moves=("relocate", "swap", "reverse")) -> Schedule:
@@ -130,14 +176,7 @@ def iterated_local_search(inst: Instance, objective: str = "sum_C",
     n = inst.n
 
     cur = list(range(n))
-    from ..heuristics.constructive import fcfs, lpt
-    starts = [fcfs(inst, objective).extra.get("order", list(range(n))),
-              lpt(inst, objective).extra.get("order", list(range(n)))]
-    best, best_val = None, math.inf
-    for s in starts:
-        v = ev(s)
-        if v < best_val:
-            best, best_val = s[:], v
+    best, best_val = _best_seed(inst, objective, ev)
 
     cur, cur_val = local_search(inst, best, ev, rng, move=random.Random(seed).choice(moves))
 
@@ -289,13 +328,7 @@ def _ls_entry(inst: Instance, objective: str, seed: int) -> Schedule:
     t0 = time.perf_counter()
     rng = random.Random(seed)
     ev = Evaluator(inst, objective)
-    from ..heuristics.constructive import fcfs, lpt
-    best, best_val = None, math.inf
-    for s in (fcfs(inst, objective), lpt(inst, objective)):
-        o = s.extra.get("order", list(range(inst.n)))
-        v = ev(o)
-        if v < best_val:
-            best, best_val = o[:], v
+    best, best_val = _best_seed(inst, objective, ev)
     best, best_val = local_search(inst, best, ev, rng, move="relocate")
     return _finish(inst, best, "LS", t0, objective, ev)
 

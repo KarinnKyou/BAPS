@@ -89,15 +89,21 @@ def run_rolling(planned, n_events: int, seed: int, dt: int, time_limit: float) -
     realised = apply_events(planned, events)
 
     perfect = BAPTimeIndexed(realised, time_limit=time_limit).solve()
+    # The regret denominator must be a proved optimum. An unproved incumbent is an
+    # upper bound, so dividing by it understates the regret -- and if the incumbent
+    # happened to be the rolling solution's own value the regret would read zero.
+    perfect_proved = bool(perfect.extra.get("proved_optimal")) \
+        and perfect.objective is not None
     rr = rolling_horizon(planned, realised, events, dt=dt, time_limit=time_limit)
     ok, rolling_obj, violations = evaluate_schedule_on(realised, rr.schedule)
 
     regret = None
-    if ok and rolling_obj is not None and perfect.feasible and perfect.objective:
+    if ok and rolling_obj is not None and perfect_proved:
         regret = round((rolling_obj - perfect.objective) / perfect.objective * 100.0, 3)
     return {
         "n_events": n_events, "seed": seed, "dt": dt,
-        "perfect_objective": perfect.objective if perfect.feasible else None,
+        "perfect_objective": perfect.objective if perfect_proved else None,
+        "perfect_proved": perfect_proved,
         "rolling_objective": rolling_obj if ok else None,
         "regret_pct": regret, "feasible": ok,
         "reoptimizations": rr.reoptimizations,
