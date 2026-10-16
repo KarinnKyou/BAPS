@@ -12,11 +12,15 @@ derived from a discrete model should state `dt`.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
 DT_DEFAULT = 0.5          # hours per period
 HORIZON_DEFAULT = 48      # planning horizon in periods (24 h)
+# Horizon used to draw the fleet. Arrivals are drawn from a range that scales
+# with the horizon, so a sweep over `slack` must reuse one fixed fleet.
+BASE_HORIZON = 96
 
 
 @dataclass
@@ -277,27 +281,39 @@ def make_hard_instance(
     horizon the earliest-available-berth greedy rule is already optimal whatever
     the constraints are. Difficulty comes from tight slack, defined as
 
-        slack = horizon / theoretical minimum makespan
+        slack = horizon / lower_bound_makespan
 
-    where the minimum is ceil(sum of handling periods / number of berths), plus
-    the longest handling time. slack much greater than 1 is very loose, near 1
-    the vessels compete for berths and time windows, and below 1 the instance is
-    infeasible. The horizon is derived from `slack` when not given.
+    where the lower bound is `max_j handling_j + ceil(sum_j handling_j / m)`:
+    the last vessel to finish needs one full handling plus, on average, the
+    berth-time of all the others. The horizon is derived from `slack` when not
+    given, so `slack = 1.0` means the horizon equals that bound and the instance
+    is infeasible by construction; larger slack is looser.
+
+    Note that feasibility is not determined by `slack` alone. Tidal windows
+    remove about `tidal_block / tidal_period` of every berth's time and the crane
+    limit caps concurrency, so an instance can be infeasible at a slack well
+    above 1.0 and feasible again only once the horizon accommodates the blocked
+    periods. Check the exact model rather than assuming a threshold.
 
     The constraints enabled by default are tidal windows, blocking `tidal_block`
     periods out of every `tidal_period` on each berth with a per-berth phase,
     and a terminal-wide limit of `crane_limit` vessels handled at once.
     """
-    inst_tmp = make_toy_instance(name, n_vessels, n_berths, horizon=96,
-                                 seed=seed, tight=True)
+    # The vessel set must not depend on the horizon being swept. `arrive` is
+    # drawn from a range that scales with the horizon, so generating the instance
+    # afresh per horizon would compare different fleets and make feasibility
+    # non-monotone in `slack`. Build the fleet once and retarget the horizon.
+    base = make_toy_instance(name, n_vessels, n_berths, horizon=BASE_HORIZON,
+                             seed=seed, tight=True)
+    p_sum = sum(v.handle for v in base.vessels)
+    p_max = max(v.handle for v in base.vessels)
+    lower_bound = p_max + math.ceil(p_sum / max(1, n_berths))
     if horizon is None:
-        # Workload lower bound, scaled by the requested slack.
-        need = sum(v.handle for v in inst_tmp.vessels) / max(1, n_berths)
-        horizon = max(int(need * slack) + max(v.handle for v in inst_tmp.vessels),
-                      max(v.handle for v in inst_tmp.vessels) + 4)
+        horizon = max(int(math.ceil(lower_bound * slack)), p_max + 1)
 
     inst = make_toy_instance(name, n_vessels, n_berths, horizon=horizon,
                              seed=seed, tight=True)
+    inst.vessels = base.vessels
     if tidal:
         windows = {}
         for k in range(n_berths):
@@ -313,7 +329,9 @@ def make_hard_instance(
     inst.meta.update({"generator": "make_hard_instance", "seed": seed,
                       "tidal": tidal, "tidal_period": tidal_period,
                       "tidal_block": tidal_block, "crane_limit": crane_limit,
-                      "slack": slack, "horizon": horizon})
+                      "slack": slack, "horizon": horizon,
+                      "lower_bound_makespan": lower_bound,
+                      "horizon_over_lower_bound": round(horizon / lower_bound, 3)})
     return inst
 
 

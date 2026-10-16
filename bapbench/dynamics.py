@@ -239,19 +239,47 @@ def rolling_horizon(planned: Instance, true_inst: Instance, events: list[Event],
     try:
         from .models.bap import BAPTimeIndexed
         realised = _ensure_horizon(true_inst, final_locks)
-        final = BAPTimeIndexed(realised, time_limit=max(time_limit, 30.0),
+        budget = max(time_limit, 30.0)
+
+        final = BAPTimeIndexed(realised, time_limit=budget,
                                lock=final_locks).solve()
+        kept = dict(final_locks)
         if not final.feasible:
-            final = BAPTimeIndexed(realised, time_limit=max(time_limit, 30.0),
+            final = BAPTimeIndexed(realised, time_limit=budget,
                                    lock=final_locks, lock_start_free=True).solve()
+
+        # A commitment to a berth cannot outlast that berth's availability. On a
+        # tightly constrained instance the accumulated locks can leave no legal
+        # assignment at all, and because locks are never released the planner
+        # would then never recover. Release them one at a time, newest first --
+        # the oldest commitments are the ones most defensible -- and report how
+        # many survived.
+        if not final.feasible:
+            order = sorted(final_locks, key=lambda vid: final_locks[vid][1])
+            for drop in range(1, len(order) + 1):
+                trial = {vid: spec for vid, spec in final_locks.items()
+                         if vid not in set(order[:drop])}
+                attempt = BAPTimeIndexed(realised, time_limit=budget,
+                                         lock=trial).solve()
+                if not attempt.feasible:
+                    attempt = BAPTimeIndexed(realised, time_limit=budget,
+                                             lock=trial, lock_start_free=True).solve()
+                if attempt.feasible:
+                    final, kept, dropped = attempt, trial, drop
+                    result.log.append({"now": "final_rebuild",
+                                       "released_locks": drop})
+                    break
+
         result.schedule = final if final.feasible else prev
         result.feasible = bool(final.feasible)
+        result.final_locks = kept
         result.log.append({"now": "final_rebuild",
                            "objective": result.schedule.objective
                            if result.schedule else None,
                            "feasible": result.schedule.feasible
                            if result.schedule else False,
-                           "n_locked": len(final_locks)})
+                           "n_locked": len(kept),
+                           "n_committed_before": len(final_locks)})
     except Exception as e:                                       # noqa: BLE001
         result.log.append({"now": "final_rebuild",
                            "error": f"{type(e).__name__}: {e}"})

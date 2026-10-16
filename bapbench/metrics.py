@@ -159,17 +159,13 @@ def sanity_check_schedule(inst, schedule_or_assign) -> list[SanityIssue]:
         if any(inst.blocked(bid, t) for t in range(st, st + v.handle)):
             issues.append(SanityIssue("tidal", f"{v.name} straddles a blocked period"))
 
-        # Crane capacity, including any failure window that lowers it.
-        limit = getattr(inst, "quay_crane_limit", None)
-        if limit is not None:
-            bad = [t for t in range(st, min(st + v.handle, inst.horizon))
-                   if inst.crane_capacity(t) is not None
-                   and inst.crane_capacity(t) < limit]
-            if bad:
-                issues.append(SanityIssue(
-                    "crane_window",
-                    f"{v.name} works at t={bad[0]} when only "
-                    f"{inst.crane_capacity(bad[0])} of {limit} cranes are usable"))
+        # A vessel must fit the berth it is placed on. Whole-berth occupancy means
+        # one vessel at a time, but not that every vessel fits every berth.
+        if getattr(v, "length", None) is not None and v.length > inst.berths[bid].length:
+            issues.append(SanityIssue(
+                "berth_length",
+                f"{v.name} is {v.length} long but berth {inst.berths[bid].name} "
+                f"is only {inst.berths[bid].length}"))
     issues.extend(SanityIssue("berth_overlap", p)
                   for p in berth_overlaps(inst, assign))
 

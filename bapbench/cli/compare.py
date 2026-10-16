@@ -9,7 +9,7 @@ import sys
 import time
 from pathlib import Path
 
-from ..bounds import best_lower_bound
+from ..bounds import best_lower_bound, trivial_lower_bound
 from ..heuristics.constructive import BASELINES, run_all_baselines
 from ..instances import Instance, make_hard_instance, make_toy_instance
 from ..metrics import gap_pct
@@ -165,28 +165,48 @@ def slack_scan(out_dir: Path, objective: str, time_limit: float,
     for slack in slacks:
         inst = make_hard_instance(f"slack_{slack}", 10, 3, seed=20261014, slack=slack)
         exact, proved = solve_exact(inst, objective, time_limit)
-        if not proved:
-            rows.append({"slack": slack, "horizon": inst.horizon,
-                         "exact": exact.objective, "best_heuristic": None,
+        status = str(exact.extra.get("status", ""))
+        lower_bound = trivial_lower_bound(inst, objective)
+        base = {"slack": slack, "horizon": inst.horizon,
+                "horizon_over_lower_bound": inst.meta.get("horizon_over_lower_bound"),
+                "exact_time_s": round(exact.wall_time, 4)}
+
+        if not proved and not exact.feasible:
+            # Three different situations, previously all reported as a timeout.
+            # "Infeasible" means the model proved no schedule exists, which is a
+            # fact about the instance, not a failure of the solver.
+            note = ("instance is infeasible" if "Infeasible" in status
+                    else f"exact model stopped with status {status}")
+            rows.append({**base, "exact": None, "reference": None,
+                         "reference_kind": "none", "best_heuristic": None,
                          "best_heuristic_name": None, "gap_pct": None,
-                         "fcfs_gap_pct": None, "lpt_gap_pct": None,
-                         "exact_time_s": round(exact.wall_time, 4),
-                         "note": "exact model did not prove optimality in time"})
+                         "fcfs_gap_pct": None, "lpt_gap_pct": None, "note": note})
             continue
+
+        # With no proved optimum, report the gap against a valid bound instead of
+        # leaving the row empty.
+        if proved:
+            reference, ref_kind = exact.objective, "exact_proved"
+        else:
+            bound = best_lower_bound(inst, objective, time_limit=30.0)
+            reference, ref_kind = bound.value, f"{bound.kind}_bound"
+
         schedules = run_all_baselines(inst, objective)
         name, value = _best_feasible(schedules)
 
         def gj(method: str) -> float | None:
             sch = schedules.get(method)
-            if sch is None or not sch.feasible:
+            if sch is None or not sch.feasible or reference is None:
                 return None
-            return gap_pct(sch.objective, exact.objective)
+            return gap_pct(sch.objective, reference)
 
-        rows.append({"slack": slack, "horizon": inst.horizon, "exact": exact.objective,
+        rows.append({**base, "exact": exact.objective if proved else None,
+                     "reference": reference, "reference_kind": ref_kind,
+                     "trivial_bound": lower_bound.value,
                      "best_heuristic": value, "best_heuristic_name": name,
-                     "gap_pct": gap_pct(value, exact.objective),
+                     "gap_pct": gap_pct(value, reference) if reference else None,
                      "fcfs_gap_pct": gj("FCFS"), "lpt_gap_pct": gj("LPT"),
-                     "exact_time_s": round(exact.wall_time, 4), "note": ""})
+                     "note": "" if proved else "gap measured against a lower bound"})
     return rows
 
 
@@ -221,7 +241,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--objective", choices=("sum_C", "C_max"), default="sum_C")
     p.add_argument("--time-limit", type=float, default=120.0)
     p.add_argument("--slacks", type=float, nargs="+",
-                   default=[2.5, 2.0, 1.6, 1.3, 1.15, 1.05])
+                   default=[3.0, 2.5, 2.0, 1.75, 1.6, 1.5])
     p.add_argument("--sizes", type=int, nargs="+", default=[4, 5, 6, 8, 10, 12])
     p.add_argument("--skip", nargs="*", default=[],
                    choices=["fixed", "ablation", "slack", "scale"])
