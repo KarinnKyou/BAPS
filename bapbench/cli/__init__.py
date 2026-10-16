@@ -1,8 +1,7 @@
-"""Subcommand dispatch for the baps command line interface."""
+"""Subcommand dispatch for the bapbench command line interface."""
 
 from __future__ import annotations
 
-import argparse
 import sys
 
 from . import compare as compare_cmd
@@ -20,15 +19,32 @@ COMMANDS = {
 }
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="bapbench",
-        description="Dynamic berth allocation: exact models, baselines and a rolling horizon.")
-    parser.add_argument("command", choices=sorted(COMMANDS))
-    args, rest = parser.parse_known_args(argv)
+def _usage() -> str:
+    lines = ["usage: bapbench <command> [options]", "", "commands:"]
+    width = max(len(name) for name in COMMANDS)
+    for name in sorted(COMMANDS):
+        lines.append(f"  {name:<{width}}  {COMMANDS[name][1]}")
+    lines += ["", "Run 'bapbench <command> --help' for the options of a command.", ""]
+    return "\n".join(lines)
 
-    module = COMMANDS[args.command][0]
-    return module.main(rest)
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+
+    # Dispatch on the first token by hand so that everything after the command
+    # reaches that command's own parser. Letting a top-level parser handle it
+    # would swallow --help and the subcommand would never see it.
+    if not argv or argv[0] in ("-h", "--help"):
+        print(_usage())
+        return 0
+
+    command, rest = argv[0], argv[1:]
+    if command not in COMMANDS:
+        print(f"bapbench: unknown command {command!r}\n", file=sys.stderr)
+        print(_usage(), file=sys.stderr)
+        return 2
+
+    return COMMANDS[command][0].main(rest)
 
 
 if __name__ == "__main__":

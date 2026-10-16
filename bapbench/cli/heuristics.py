@@ -182,7 +182,7 @@ def cmd_configs(args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="baps heuristics",
+    p = argparse.ArgumentParser(prog="bapbench heuristics",
                                 description="Metaheuristic and solver-configuration runs.")
     p.add_argument("mode", choices=("multiseed", "scaling", "configs"),
                    nargs="?", default="multiseed")

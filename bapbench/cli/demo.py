@@ -14,7 +14,7 @@ from ..verification.exhaustive import verify_instance
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="baps demo",
+    p = argparse.ArgumentParser(prog="bapbench demo",
                                 description="Solve one instance with the exact model "
                                             "and the baselines.")
     p.add_argument("--instances", type=int, default=6)
@@ -48,6 +48,9 @@ def main(argv: list[str] | None = None) -> int:
         print("the exact model found no feasible schedule:")
         for v in exact.violations:
             print("  -", v)
+        print(f"\nhorizon is {inst.horizon} periods. Raise --slack, add berths, or "
+              f"reduce --instances; slack {args.slack} is too tight for "
+              f"{args.instances} vessels on {args.berths} berths.")
         return 1
     optimum = exact.objective
     print(f"exact model           objective {optimum:>8.0f}   "

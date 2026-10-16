@@ -90,7 +90,7 @@ def benchmark_families() -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="baps verify",
+    p = argparse.ArgumentParser(prog="bapbench verify",
                                 description="Independent verification suite.")
     p.add_argument("--skip", nargs="*", default=[],
                    choices=["formulations", "exhaustive", "objectives",

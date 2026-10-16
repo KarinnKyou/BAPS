@@ -197,7 +197,7 @@ def _print_table(rows: list[dict], cols: list[str]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="baps compare",
+    p = argparse.ArgumentParser(prog="bapbench compare",
                                 description="Compare the exact model with the baselines.")
     p.add_argument("--out", type=Path, default=Path("results/compare"))
     p.add_argument("--objective", choices=("sum_C", "C_max"), default="sum_C")

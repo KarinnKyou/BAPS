@@ -183,7 +183,7 @@ def cmd_dt(args) -> int:
 
 # --------------------------------------------------------------------------
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="baps dynamic",
+    p = argparse.ArgumentParser(prog="bapbench dynamic",
                                 description="Disruptions and rolling-horizon scheduling.")
     p.add_argument("mode", choices=("events", "rolling", "multiseed", "dt"),
                    nargs="?", default="events")
