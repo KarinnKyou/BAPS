@@ -350,10 +350,12 @@ class ParallelMachineMILP:
         wall = time.perf_counter() - t0
         info = classify_status(stats)
         nv, nc, nb = self.formulation()
-        if not info["solved"]:
+        if not info["solved"] and not (info["limited"] and info["has_solution"]):
+            # Nothing to read: either the solver proved the model infeasible or it
+            # stopped without a solution. A limit that does have one is read below,
+            # because discarding a usable schedule misreports the instance.
             return Schedule(assign={}, feasible=False, objective=None,
-                            violations=[f"no optimal solution, status "
-                                        f"{info['status']}"],
+                            violations=[f"no solution, status {info['status']}"],
                             solver="PM-MILP", wall_time=wall,
                             extra={"vars": nv, "cons": nc, "binaries": nb, **info})
         start, mach_of = {}, {}
@@ -367,7 +369,12 @@ class ParallelMachineMILP:
                 if hit:
                     break
             if hit is None:
-                raise RuntimeError(f"no assignment read for job J{j}")
+                return Schedule(
+                    assign={}, feasible=False, objective=None, solver="PM-MILP",
+                    wall_time=wall,
+                    violations=[f"the solver's incumbent places no machine and "
+                                f"start for job J{j}"],
+                    extra={"vars": nv, "cons": nc, "binaries": nb, **info})
             mach_of[j], start[j] = hit
         return _to_schedule(self.instance_view, start, mach_of, self.prob,
                             "PM-MILP", wall, nv, nc, nb,
@@ -450,12 +457,29 @@ class FlowShopMILP:
         wall = time.perf_counter() - t0
         info = classify_status(stats)
         nv, nc = self.problem.numVariables(), self.problem.numConstraints()
-        if not info["solved"]:
+        if not info["solved"] and not (info["limited"] and info["has_solution"]):
+            # Either the model was proved infeasible or the solver stopped with
+            # nothing to read; a limit that does hold a solution is read below,
+            # because discarding a usable schedule misreports the instance.
             return Schedule(assign={}, feasible=False, objective=None,
-                            violations=[f"no optimal solution, status "
+                            violations=[f"no solution, status "
                                         f"{info['status']}"],
                             solver="FS-MILP", wall_time=wall,
                             extra={"vars": nv, "cons": nc, **info})
+        last = self.prob.m - 1
+        try:
+            completions = {j: int(round(self.C[(j, last)].value()))
+                           for j in range(self.prob.n)}
+        except (TypeError, ValueError):
+            return Schedule(
+                assign={}, feasible=False, objective=None, solver="FS-MILP",
+                wall_time=wall,
+                violations=["the solver's incumbent leaves a completion time "
+                            "unset, so no schedule can be read from it"],
+                extra={"vars": nv, "cons": nc, **info})
+        start = {j: completions[j] - self.prob.jobs[j].proc
+                 for j in range(self.prob.n)}
+        mach_of = {j: last for j in range(self.prob.n)}
         # The Schedule adapter carries one machine and one start per job, which is
         # enough for a parallel-machine schedule but cannot describe a shop: a job
         # there occupies a different machine in each of its operations. The
@@ -465,7 +489,7 @@ class FlowShopMILP:
         # objective from it, so `objective` and `assign` cannot disagree. Feasibility
         # for a shop comes from `job_shop_optimum`, not from this adapter.
         last = self.prob.m - 1
-        start = {j: int(round(self.C[(j, last)].value())) - self.prob.jobs[j].proc
+        start = {j: completions[j] - self.prob.jobs[j].proc
                  for j in range(self.prob.n)}
         mach_of = {j: last for j in range(self.prob.n)}
         return _to_schedule(self.instance_view, start, mach_of, self.prob,
@@ -558,17 +582,27 @@ class JobShopMILP:
         wall = time.perf_counter() - t0
         info = classify_status(stats)
         nv, nc = self.problem.numVariables(), self.problem.numConstraints()
-        if not info["solved"]:
+        if not info["solved"] and not (info["limited"] and info["has_solution"]):
+            # Either the model was proved infeasible or the solver stopped with
+            # nothing to read; a limit that does hold a solution is read below.
             return Schedule(assign={}, feasible=False, objective=None,
-                            violations=[f"no optimal solution, status "
+                            violations=[f"no solution, status "
                                         f"{info['status']}"],
                             solver="JS-MILP", wall_time=wall,
                             extra={"vars": nv, "cons": nc, **info})
         # A job is finished when its own last operation ends. Routes need not have
         # the same length, so the last operation is looked up per job rather than
         # taken from the first job's route.
-        start = {j: int(round(self.s[(j, len(self.routes[j]) - 1)].value()))
-                 for j in range(self.prob.n)}
+        try:
+            start = {j: int(round(self.s[(j, len(self.routes[j]) - 1)].value()))
+                     for j in range(self.prob.n)}
+        except (TypeError, ValueError):
+            return Schedule(
+                assign={}, feasible=False, objective=None, solver="JS-MILP",
+                wall_time=wall,
+                violations=["the solver's incumbent leaves an operation start "
+                            "unset, so no schedule can be read from it"],
+                extra={"vars": nv, "cons": nc, **info})
         mach_of = {j: self.routes[j][len(self.routes[j]) - 1]
                    for j in range(self.prob.n)}
         return _to_schedule(self.instance_view, start, mach_of, self.prob,
