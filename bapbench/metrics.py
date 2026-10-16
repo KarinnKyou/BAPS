@@ -179,6 +179,20 @@ def sanity_check_schedule(inst, schedule_or_assign) -> list[SanityIssue]:
     """
     assign = getattr(schedule_or_assign, "assign", schedule_or_assign)
     issues: list[SanityIssue] = []
+
+    # A name that is not a vessel cannot be looked up, and the checks below index
+    # vessels by it. Report the malformed entries and stop, since there is nothing
+    # further to say about the rest of an assignment keyed by names that do not
+    # exist -- this check is what a caller reaches for when a schedule is suspect.
+    unknown = sorted(v for v in assign if not (0 <= v < inst.n))
+    if unknown:
+        issues.append(SanityIssue(
+            "vessel_range",
+            f"assignment names {len(unknown)} vessels that do not exist: {unknown[:5]}"))
+        issues.extend(SanityIssue("berth_overlap", p)
+                      for p in berth_overlaps(inst, assign))
+        return issues
+
     if set(assign) != set(range(inst.n)):
         issues.append(SanityIssue(
             "coverage",
@@ -230,12 +244,22 @@ def berth_overlaps(inst, assign: dict[int, tuple[int, int]]) -> list[str]:
     A vessel occupies its whole berth while handling, so periods may not overlap.
     This is stronger than checking that summed vessel lengths fit within the berth
     length, which would let two short vessels share one berth.
+
+    Entries naming a berth or a vessel the instance does not have are reported as
+    such rather than indexed, since this is the check a caller reaches for when an
+    assignment is suspected of being malformed.
     """
     by_berth: dict[int, list[tuple[int, int, int]]] = {}
+    problems = []
     for vid, (bid, st) in assign.items():
+        if not (0 <= vid < inst.n):
+            problems.append(f"assignment names vessel {vid}, which does not exist")
+            continue
+        if not (0 <= bid < inst.m):
+            problems.append(f"berth {bid} is out of range for {inst.vessels[vid].name}")
+            continue
         v = inst.vessels[vid]
         by_berth.setdefault(bid, []).append((st, st + v.handle, vid))
-    problems = []
     for bid, spans in by_berth.items():
         spans.sort()
         for (s1, e1, v1), (s2, _e2, v2) in zip(spans, spans[1:]):

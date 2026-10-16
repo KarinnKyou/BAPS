@@ -53,6 +53,11 @@ def exhaustive_agreement() -> bool:
         if res.objective is None:
             results.append(check(f"enumeration feasible for {name}", False, res.note))
             continue
+        if not res.feasible:
+            # The search hit its budget, so its incumbent is an upper bound and
+            # comparing it would report a model disagreement the run has not shown.
+            results.append(check(f"enumeration complete for {name}", False, res.note))
+            continue
         results.append(check(
             f"exact model matches enumeration on {name}",
             agrees, f"model={sch.objective} enumerated={res.objective} "

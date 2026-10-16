@@ -277,12 +277,17 @@ def main(argv: list[str] | None = None) -> int:
         _print_table(rows, ["n", "m", "exact_obj", "proved", "best_heur", "gap_pct"])
         print(f"wrote {out / 'scaling.csv'}\n")
 
+    # The time unit of every period in this run, taken from the instances rather
+    # than assumed, so the summary cannot misstate it for an instance built with
+    # a different `dt`.
+    dt_hours = build(dict(DEFAULT_INSTANCES[0][1], name="dt_probe")).dt
+
     (out / "summary.json").write_text(json.dumps({
         "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "objective": args.objective,
         "objective_definition": "sum_i C_i in periods" if args.objective == "sum_C"
                                 else "max_i C_i in periods",
-        "dt_hours": 0.5,
+        "dt_hours": dt_hours,
         "gap_definition": "(heuristic - optimal) / optimal * 100",
         "baselines": list(BASELINES),
         "time_limit_s": args.time_limit,

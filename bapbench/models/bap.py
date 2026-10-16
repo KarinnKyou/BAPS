@@ -118,7 +118,13 @@ class BAPTimeIndexed:
                 return []
             ok = lambda t: all(                       # noqa: E731
                 not inst.blocked(k, tt) for tt in range(t, t + v.handle))
-            if self.lock_start_free or not fixed:
+            if self.lock_start_free:
+                # Every start is allowed: the berth commitment is kept but the
+                # start carries no lower bound, which is what the flag means. With
+                # the bound still applied the fallback in `rolling_horizon` could
+                # not recover a commitment whose start a disruption invalidated.
+                return [t for t in self._starts(i) if ok(t)]
+            if not fixed:
                 return [t for t in self._starts(i) if t >= lock_lb and ok(t)]
             pinned = [lock_lb] if ok(lock_lb) else []
             if not pinned:
@@ -346,16 +352,23 @@ class BAPDisjunctive:
 
         Empty when a closure covers every window or when the vessel is longer than
         the berth, which is the same condition the time-indexed model applies and
-        the same one the package's feasibility checks enforce.
+        the same one the package's feasibility checks enforce. This model carries no
+        commitments: it is a cross-check on the exact optimum, not a planner.
         """
+        if self.inst.vessels[i].length > self.inst.berths[k].length:
+            return []
+        return self._unblocked(i, k)
+
+    def _unblocked(self, i: int, k: int) -> list[int]:
         inst = self.inst
         vessel = inst.vessels[i]
-        if vessel.length > inst.berths[k].length:
-            return []
         last = inst.horizon - vessel.handle
-        return [t for t in range(vessel.arrive, last + 1)
-                if not any(inst.blocked(k, tt)
-                           for tt in range(t, t + vessel.handle))]
+        return [t for t in range(vessel.arrive, last + 1) if self._free(i, k, t)]
+
+    def _free(self, i: int, k: int, t: int) -> bool:
+        vessel = self.inst.vessels[i]
+        return all(not self.inst.blocked(k, tt)
+                   for tt in range(t, t + vessel.handle))
 
     def build(self):
         inst = self.inst
@@ -370,16 +383,10 @@ class BAPDisjunctive:
              for i in range(n)}
         z = {(i, j): prob.add_variable(f"z_{i}_{j}", cat="Binary")
              for i in range(n) for j in range(i + 1, n)}
-        # Candidate start periods per vessel and berth, empty when a closure
-        # leaves no unblocked handling window or when the vessel is longer than the
-        # berth. A vessel occupies the whole berth, so it cannot berth where it
-        # does not fit; `Instance.validate`, `Schedule.check` and
-        # `metrics.sanity_check_schedule` all enforce that, and a model that omits
-        # it reports an optimum the package's own check rejects.
-        starts = {(i, k): [t for t in range(inst.vessels[i].arrive, T - inst.vessels[i].handle + 1)
-                           if (inst.vessels[i].length <= inst.berths[k].length
-                               and not any(inst.blocked(k, tt)
-                                           for tt in range(t, t + inst.vessels[i].handle)))]
+        # Candidate start periods per vessel and berth, from the one function that
+        # decides them: empty when a closure leaves no unblocked window, when the
+        # vessel is longer than the berth, or when a lock excludes the berth.
+        starts = {(i, k): self._starts_for(i, k)
                   for i in range(n) for k in range(m)}
         self._starts = starts
 

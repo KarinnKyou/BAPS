@@ -107,14 +107,17 @@ class Instance:
         return sum(1 for t in range(self.horizon) if self.blocked(bid, t))
 
     def crane_capacity(self, t: int) -> int | None:
-        """Usable cranes in period `t`, after failure windows; None = unlimited."""
+        """Usable cranes in period `t`, after failure windows; None = unlimited.
+
+        Overlapping windows accumulate: each one takes `reduction` cranes out of
+        service for its duration, so two simultaneous single-crane losses leave the
+        terminal two cranes short, not one. Taking the smallest of the reductions
+        would overstate availability and admit schedules that cannot be worked.
+        """
         if self.quay_crane_limit is None:
             return None
-        cap = self.quay_crane_limit
-        for (a, b, red) in self.crane_failures:
-            if a <= t < b:
-                cap = min(cap, max(0, self.quay_crane_limit - red))
-        return cap
+        lost = sum(red for (a, b, red) in self.crane_failures if a <= t < b)
+        return max(0, self.quay_crane_limit - lost)
 
     def min_crane_capacity(self) -> int | None:
         """Smallest usable crane count over the horizon."""
@@ -331,9 +334,14 @@ def make_hard_instance(
     if horizon is None:
         horizon = max(int(math.ceil(lower_bound * slack)), p_max + 1)
 
+    # Build once, at the horizon that is actually used and with a berth length
+    # derived from the same fleet. Drawing a fleet at one horizon and discarding
+    # it left the berth length describing vessels that are not in the instance,
+    # and left arrivals drawn against the discarded horizon -- which can place a
+    # vessel's arrival past a short horizon's end.
+    berth_length = int(math.ceil(1.5 * max(v.length for v in base.vessels)))
     inst = make_toy_instance(name, n_vessels, n_berths, horizon=horizon,
-                             seed=seed, tight=True)
-    inst.vessels = base.vessels
+                             seed=seed, tight=True, berth_length=berth_length)
     if tidal:
         windows = {}
         for k in range(n_berths):

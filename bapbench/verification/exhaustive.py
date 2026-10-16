@@ -210,8 +210,16 @@ def verify_instance(inst: Instance, milp_objective: float | None,
                     objective: str = "sum_C",
                     max_cases: int = 5_000_000,
                     time_budget: float = 120.0) -> tuple[bool, ExhaustiveResult]:
-    """Compare the MILP objective with the exhaustive optimum."""
+    """Whether the model's objective matches a *complete* enumeration.
+
+    A search that hit its budget returns an incumbent, which is only an upper
+    bound: it can exceed the optimum, and comparing it would report a disagreement
+    that says nothing about either model. Such a result is returned with
+    `feasible=False` and the caller must treat the comparison as inconclusive.
+    """
     res = exhaustive_optimum(inst, objective, max_cases, time_budget)
+    if not res.feasible:
+        return False, res
     if res.objective is None or milp_objective is None:
         return False, res
     return abs(res.objective - milp_objective) < 1e-6, res

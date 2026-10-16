@@ -43,15 +43,39 @@ def test_limit_statuses_are_recognised_as_limits():
     assert enum["Infeasible"].value not in LIMIT_STATUSES
 
 
-def test_time_limited_run_keeps_its_schedule():
-    """A 1 ms limit cannot prove optimality, but if a solution is in hand the
-    run must not be reported as infeasible."""
+def test_a_limited_run_records_how_it_was_classified():
+    """A 1 ms limit cannot prove optimality. Whatever the solver managed, the
+    result must say which status it was and whether optimality was proved, so a
+    caller can tell a limit from a proof -- and it must never be labelled optimal
+    when it was not."""
     inst = make_hard_instance("status_limit", 10, 3, seed=20261014, slack=1.8)
     sch = BAPTimeIndexed(inst, time_limit=0.001).solve()
+    assert "status" in sch.extra
+    assert sch.extra["proved_optimal"] is bool(sch.extra["status"] == "Optimal")
+    if not sch.extra["proved_optimal"]:
+        assert sch.extra["status"] == "TimeLimit" or sch.extra["has_solution"] is False
     if sch.feasible:
         assert sch.objective is not None
-        assert sch.extra["proved_optimal"] is False
-        assert sch.extra["status"] in ("TimeLimit", "Optimal")
+        assert sch.check(inst).feasible, sch.check(inst).violations
+
+
+def test_the_classical_models_record_their_solver_status():
+    """They read the same solver as the BAP models, so a caller must be able to
+    tell a time limit from a proof of infeasibility for them too."""
+    from bapbench.models.classical import (
+        FlowShopMILP, JobShopMILP, ParallelMachineMILP, make_simple_problem,
+        to_instance_view,
+    )
+    prob = make_simple_problem("status_cls", 6, 3, seed=11, horizon=120)
+    view = to_instance_view(prob)
+    for model, kw in ((ParallelMachineMILP, {}),
+                      (FlowShopMILP, {}),
+                      (JobShopMILP, {"routes": {j: list(range(3)) for j in range(6)}})):
+        sch = model(prob, instance_view=view, **kw).solve()
+        assert "status" in sch.extra, model.__name__
+        assert "proved_optimal" in sch.extra, model.__name__
+        assert "has_solution" in sch.extra, model.__name__
+        assert sch.extra["proved_optimal"] is bool(sch.extra["status"] == "Optimal")
 
 
 def test_horizon_starved_instance_reports_infeasible_not_optimal():

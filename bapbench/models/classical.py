@@ -139,7 +139,8 @@ def to_instance_view(P: SimpleProblem) -> Instance:
 def _to_schedule(inst_like, start: dict[int, int], machine_of: dict[int, int],
                  prob: SimpleProblem, solver: str, wall: float,
                  nvars: int, ncons: int, nbin: int,
-                 objective: str = "sum_C", check: bool = True) -> Schedule:
+                 objective: str = "sum_C", check: bool = True,
+                 status: dict | None = None) -> Schedule:
     """Wrap a classical solution as a Schedule to reuse the same metrics.
 
     The objective must be reported in the units the model minimised: summing the
@@ -150,11 +151,16 @@ def _to_schedule(inst_like, start: dict[int, int], machine_of: dict[int, int],
     `check=False` is for the shop models, whose assignment is a placeholder: one
     machine per job cannot express a multi-operation route, so the times are placed
     to encode the makespan and the assignment is not a checkable schedule.
+
+    `status` is what `metrics.classify_status` made of the solver's statistics. The
+    rows carry it so a caller can tell a proved optimum from a limit, and so the
+    successful and unsuccessful paths report the same keys.
     """
     assign = {j: (machine_of[j], start[j]) for j in range(prob.n)}
     sch = Schedule(assign=assign, solver=solver, wall_time=wall,
                    extra={"vars": nvars, "cons": ncons, "binaries": nbin,
-                          "assignment_is_a_schedule": check})
+                          "assignment_is_a_schedule": check,
+                          **(status or {})})
     if check:
         sch.check(inst_like)
     comp = sch.completion(inst_like)
@@ -359,7 +365,7 @@ class ParallelMachineMILP:
             mach_of[j], start[j] = hit
         return _to_schedule(self.instance_view, start, mach_of, self.prob,
                             "PM-MILP", wall, nv, nc, nb,
-                            objective=self.objective)
+                            objective=self.objective, status=info)
 
 
 
@@ -458,7 +464,7 @@ class FlowShopMILP:
         mach_of = {j: last for j in range(self.prob.n)}
         return _to_schedule(self.instance_view, start, mach_of, self.prob,
                             "FS-MILP", wall, nv, nc, self.prob.n * self.prob.n,
-                            objective=self.objective, check=False)
+                            objective=self.objective, check=False, status=info)
 
 
 
@@ -557,7 +563,7 @@ class JobShopMILP:
         mach_of = {j: self.routes[j][last] for j in range(self.prob.n)}
         return _to_schedule(self.instance_view, start, mach_of, self.prob,
                             "JS-MILP", wall, nv, nc, len(self.z),
-                            objective=self.objective, check=False)
+                            objective=self.objective, check=False, status=info)
 
 
 

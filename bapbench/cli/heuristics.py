@@ -187,12 +187,14 @@ def cmd_scaling(args) -> int:
         ref_kind = r[0]["reference_kind"] if r else "none"
         exact = r[0]["exact"] if r else None
         proved = ref_kind == "exact_proved"
+        milp = next((x for x in r if x["method"] == "MILP"), None)
         heur = [x for x in r
                 if x["method"] != "MILP" and x["min_objective"] is not None]
         best = min(heur, key=lambda x: x["min_objective"]) if heur else None
         rows.append({
             "n": n, "m": args.berths, "exact_obj": exact,
-            "proved": proved, "exact_time_s": None,
+            "proved": proved,
+            "exact_time_s": milp["mean_wall_time_s"] if milp else None,
             "reference": reference, "reference_kind": ref_kind,
             "best_heuristic": best["min_objective"] if best else None,
             "best_heuristic_name": best["method"] if best else None,

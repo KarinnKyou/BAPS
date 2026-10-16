@@ -190,10 +190,11 @@ pip install -e ".[dev]"
 pytest
 ```
 
-42 tests covering the two formulations and their agreement on constrained
+The suite covers the two formulations and their agreement on constrained
 instances, the solver-free enumerator, the known-optimum families, schedule
-checking, the classical scheduling models against enumeration, and the
-disruption and rolling-horizon behaviour.
+checking, the classical scheduling models against enumeration, the disruption and
+rolling-horizon behaviour, the experiment orchestration layer, and each
+reproduction against evidence it does not produce itself.
 
 ## License
 

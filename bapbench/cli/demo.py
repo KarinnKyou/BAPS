@@ -61,6 +61,13 @@ def main(argv: list[str] | None = None) -> int:
                                          max_cases=2_000_000, time_budget=300.0)
         if result.objective is None:
             print(f"exhaustive enumeration skipped: {result.note}")
+        elif not result.feasible:
+            # A truncated search leaves an incumbent, which is an upper bound and
+            # can exceed the optimum. Disagreeing with it would accuse the models
+            # of a defect the run has not shown.
+            print(f"exhaustive enumeration incomplete after {result.n_cases} cases: "
+                  f"{result.note}")
+            print("the comparison is inconclusive; raise the budget to settle it")
         else:
             print(f"exhaustive enumeration objective {result.objective:>7.0f}   "
                   f"{result.n_cases} cases   "

@@ -83,7 +83,9 @@ def apply_events(inst: Instance, events: list[Event],
             v = new.vessels[e.target]
             v.handle = v.handle + e.delta
         elif e.kind == "tidal_shift":
-            key = str(e.target)
+            # `blocked` accepts either key form, so an instance may use int keys and
+            # an event that only looked up the string form would silently do nothing.
+            key = str(e.target) if str(e.target) in new.tidal_windows else e.target
             blocks = new.tidal_windows.get(key, [])
             shifted = []
             for (a, b) in blocks:
