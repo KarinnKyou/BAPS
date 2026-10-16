@@ -76,6 +76,26 @@ class Instance:
     def m(self) -> int:
         return len(self.berths)
 
+    def __post_init__(self) -> None:
+        """Enforce that a vessel's `vid` is its index in `vessels`.
+
+        Across the package a vessel is reached as `vessels[vid]` -- in both exact
+        models, the heuristics, the enumerator, the metrics and the dynamics. That
+        only works while `vid == index`, and an instance built any other way would
+        fail deep inside a solve with a KeyError or, worse, be scored against the
+        wrong vessel. Berth ids are compared against `berths[bid]` the same way.
+        """
+        for position, v in enumerate(self.vessels):
+            if v.vid != position:
+                raise ValueError(
+                    f"vessel at position {position} has vid {v.vid}; the package "
+                    f"requires vid == index, so renumber the vessels 0..n-1")
+        for position, b in enumerate(self.berths):
+            if b.bid != position:
+                raise ValueError(
+                    f"berth at position {position} has bid {b.bid}; the package "
+                    f"requires bid == index, so renumber the berths 0..m-1")
+
     def blocked(self, bid: int, t: int) -> bool:
         """Whether berth `bid` cannot be worked in period `t`."""
         for (a, b) in self.tidal_windows.get(str(bid), self.tidal_windows.get(bid, [])):
@@ -354,7 +374,8 @@ class Schedule:
         """
         missing = [v.vid for v in inst.vessels if v.vid not in self.assign]
         if missing:
-            names = [inst.vessels[m].name for m in missing]
+            known = {v.vid: v.name for v in inst.vessels}
+            names = [known[m] for m in missing]
             raise ValueError(
                 f"incomplete schedule: {len(missing)} vessels unassigned {names}. "
                 f"This normally means the constructive heuristic failed to place "
@@ -366,6 +387,20 @@ class Schedule:
         viol: list[str] = []
         cmap = {v.vid: v for v in inst.vessels}
         bmap = {b.bid: b for b in inst.berths}
+
+        # A schedule that does not mention every vessel is not feasible. Without
+        # this, an empty assignment passes every remaining check vacuously.
+        unassigned = [v.name for v in inst.vessels if v.vid not in self.assign]
+        if unassigned:
+            viol.append(f"{len(unassigned)} vessels unassigned: {unassigned[:5]}")
+
+        unknown = [vid for vid in self.assign if vid not in cmap]
+        if unknown:
+            # The deeper checks index vessels by vid, so stop here rather than
+            # raising: an unknown vessel is itself the finding.
+            viol.append(f"assignment names unknown vessels {sorted(unknown)[:5]}")
+            self.violations, self.feasible = viol, False
+            return self
 
         for vid, (bid, st) in self.assign.items():
             v, b = cmap[vid], bmap.get(bid)
@@ -384,8 +419,8 @@ class Schedule:
         for b in inst.berths:
             occ = [0] * inst.horizon
             for vid, (bid, st) in self.assign.items():
-                if bid != b.bid:
-                    continue
+                if bid != b.bid or vid not in cmap:
+                    continue          # unknown vessels are reported above
                 v = cmap[vid]
                 for t in range(st, min(st + v.handle, inst.horizon)):
                     occ[t] += v.length
