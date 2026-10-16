@@ -30,7 +30,7 @@ from itertools import permutations
 import pulp
 
 from ..instances import Instance, Schedule, Vessel, Berth
-from ..metrics import classify_status
+from ..metrics import classify_status, is_binary
 
 
 
@@ -336,7 +336,7 @@ class ParallelMachineMILP:
 
     def formulation(self) -> tuple[int, int, int]:
         model = self.problem
-        nbin = sum(1 for v in model.variables() if v.cat == "Binary")
+        nbin = sum(1 for v in model.variables() if is_binary(v))
         return model.numVariables(), model.numConstraints(), nbin
 
     def solve(self) -> Schedule:

@@ -255,9 +255,11 @@ def rolling_horizon(planned: Instance, true_inst: Instance, events: list[Event],
         # assignment at all, and because locks are never released the planner
         # would then never recover. Release them one at a time, newest first --
         # the oldest commitments are the ones most defensible -- and report how
-        # many survived.
+        # many survived. A later start lower bound means a later commitment, so the
+        # release order takes the largest bounds first.
         if not final.feasible:
-            order = sorted(final_locks, key=lambda vid: final_locks[vid][1])
+            order = sorted(final_locks, key=lambda vid: final_locks[vid][1],
+                           reverse=True)
             for drop in range(1, len(order) + 1):
                 trial = {vid: spec for vid, spec in final_locks.items()
                          if vid not in set(order[:drop])}

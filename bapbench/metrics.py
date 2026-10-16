@@ -30,6 +30,17 @@ LIMIT_STATUSES = frozenset({
 OPTIMAL_STATUS = 1
 
 
+def is_binary(var) -> bool:
+    """Whether a PuLP variable is a binary one.
+
+    PuLP 4.0 reports `cat` as `Integer` for a variable created with `cat="Binary"`,
+    so counting by category reports zero binaries for a model that is entirely
+    binary. The bounds identify it across versions.
+    """
+    return (var.lowBound == 0 and var.upBound == 1
+            and getattr(var, "cat", "").lower() in ("integer", "binary"))
+
+
 def classify_status(stats) -> dict:
     """What a solver's statistics say, in the terms a caller needs.
 
@@ -181,10 +192,13 @@ def sanity_check_schedule(inst, schedule_or_assign) -> list[SanityIssue]:
     issues: list[SanityIssue] = []
 
     # A name that is not a vessel cannot be looked up, and the checks below index
-    # vessels by it. Report the malformed entries and stop, since there is nothing
-    # further to say about the rest of an assignment keyed by names that do not
-    # exist -- this check is what a caller reaches for when a schedule is suspect.
-    unknown = sorted(v for v in assign if not (0 <= v < inst.n))
+    # vessels by it. Membership rather than an integer comparison, so an assignment
+    # keyed by vessel names is reported like any other malformed one instead of
+    # raising a TypeError from the very check a caller reaches for. Report the
+    # malformed entries and stop, since there is nothing further to say about the
+    # rest of an assignment keyed by names that do not exist.
+    known = set(range(inst.n))
+    unknown = sorted((v for v in assign if v not in known), key=repr)
     if unknown:
         issues.append(SanityIssue(
             "vessel_range",
@@ -199,8 +213,8 @@ def sanity_check_schedule(inst, schedule_or_assign) -> list[SanityIssue]:
             f"assignment covers {sorted(assign)}, expected {list(range(inst.n))}"))
     for vid, (bid, st) in assign.items():
         v = inst.vessels[vid]
-        if not (0 <= bid < inst.m):
-            issues.append(SanityIssue("berth_range", f"V{vid} berth {bid} out of range"))
+        if bid not in set(range(inst.m)):
+            issues.append(SanityIssue("berth_range", f"V{vid} berth {bid!r} out of range"))
             continue
         if st < v.arrive:
             issues.append(SanityIssue("release",
@@ -251,12 +265,14 @@ def berth_overlaps(inst, assign: dict[int, tuple[int, int]]) -> list[str]:
     """
     by_berth: dict[int, list[tuple[int, int, int]]] = {}
     problems = []
+    known = set(range(inst.n))
+    berths = set(range(inst.m))
     for vid, (bid, st) in assign.items():
-        if not (0 <= vid < inst.n):
-            problems.append(f"assignment names vessel {vid}, which does not exist")
+        if vid not in known:
+            problems.append(f"assignment names vessel {vid!r}, which does not exist")
             continue
-        if not (0 <= bid < inst.m):
-            problems.append(f"berth {bid} is out of range for {inst.vessels[vid].name}")
+        if bid not in berths:
+            problems.append(f"berth {bid!r} is out of range for {inst.vessels[vid].name}")
             continue
         v = inst.vessels[vid]
         if v.handle <= 0:

@@ -106,8 +106,14 @@ def run_seeds(inst, objective: str, n_seeds: int, time_limit: float,
     for name in names:
         vals = [v for (v, _t, ok) in buckets[name] if ok and v is not None]
         times = [t for (_v, t, _ok) in buckets[name]]
-        hits = sum(1 for v in vals
-                   if ref_kind == "exact_proved" and abs(v - reference) < 1e-6)
+        # "Hit the reference" is only meaningful against a proved optimum. Against a
+        # lower bound a method can be strictly better than the reference and still
+        # not equal it, so counting equality would report 0 hits by construction --
+        # and the bound is the reference in the regime this experiment targets. The
+        # count is left empty rather than zero when there is nothing to compare to.
+        hits = None
+        if ref_kind == "exact_proved" and reference is not None:
+            hits = sum(1 for v in vals if abs(v - reference) < 1e-6)
         mean = statistics.mean(vals) if vals else None
         rows.append({
             "instance": inst.name, "slack": inst.meta.get("slack"), "method": name,
@@ -126,7 +132,8 @@ def run_seeds(inst, objective: str, n_seeds: int, time_limit: float,
             "best_gap_pct": gap_pct(min(vals), reference) if vals else None,
             "worst_gap_pct": gap_pct(max(vals), reference) if vals else None,
             "hit_optimal": hits,
-            "hit_optimal_pct": round(hits / n_seeds * 100.0, 1),
+            "hit_optimal_pct": (round(hits / n_seeds * 100.0, 1)
+                                if hits is not None else None),
             "mean_wall_time_s": round(statistics.mean(times), 4) if times else None,
         })
     return rows
@@ -135,10 +142,19 @@ def run_seeds(inst, objective: str, n_seeds: int, time_limit: float,
 def self_check(rows: list[dict]) -> list[str]:
     problems = []
     for r in rows:
-        if r["kind"] == "deterministic" and r["std_objective"] not in (0, 0.0):
-            problems.append(
-                f"{r['method']} is deterministic but its objective spread is "
-                f"{r['std_objective']}, which means uncontrolled randomness")
+        # A spread of zero is only evidence of determinism when at least two runs
+        # produced a value; with fewer, the spread is zero by definition and saying
+        # nothing would let a method that failed every seed pass the check.
+        if r["kind"] == "deterministic":
+            if r.get("n_valid", 0) < 2:
+                problems.append(
+                    f"{r['method']} is deterministic but only "
+                    f"{r.get('n_valid', 0)} of {r.get('n_seeds', '?')} runs produced "
+                    f"a value, so its spread cannot show whether it varies")
+            elif r["std_objective"] not in (0, 0.0):
+                problems.append(
+                    f"{r['method']} is deterministic but its objective spread is "
+                    f"{r['std_objective']}, which means uncontrolled randomness")
     return problems
 
 
@@ -156,10 +172,12 @@ def cmd_multiseed(args) -> int:
         print(f"  {'method':<10} {'kind':<14} {'mean':>9} {'sd':>8} {'best':>8} "
               f"{'worst':>8} {'gap %':>8} {'hit ref':>9}")
         for r in rows:
+            hit = ("n/a" if r["hit_optimal"] is None
+                   else f"{r['hit_optimal']}/{r['n_seeds']}")
             print(f"  {r['method']:<10} {r['kind']:<14} {str(r['mean_objective']):>9} "
                   f"{r['std_objective']:>8} {str(r['min_objective']):>8} "
                   f"{str(r['max_objective']):>8} {str(r['mean_gap_pct']):>8} "
-                  f"{r['hit_optimal']:>4}/{r['n_seeds']:<4}")
+                  f"{hit:>9}")
         print()
 
     _write_csv(args.out / "multiseed.csv", all_rows)

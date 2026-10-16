@@ -89,22 +89,36 @@ def test_a_run_without_a_bound_still_names_the_reference(toy):
 # --- self_check -----------------------------------------------------------------
 
 def test_self_check_accepts_a_clean_table():
-    rows = [{"method": "FCFS", "kind": "deterministic", "std_objective": 0.0},
-            {"method": "SA", "kind": "stochastic", "std_objective": 3.5}]
+    rows = [{"method": "FCFS", "kind": "deterministic", "std_objective": 0.0,
+             "n_valid": 10, "n_seeds": 10},
+            {"method": "SA", "kind": "stochastic", "std_objective": 3.5,
+             "n_valid": 10, "n_seeds": 10}]
     assert self_check(rows) == []
 
 
 def test_self_check_flags_a_deterministic_method_with_spread():
     """A deterministic method that varies across seeds has uncontrolled
     randomness, which invalidates its row."""
-    rows = [{"method": "FCFS", "kind": "deterministic", "std_objective": 1.25}]
+    rows = [{"method": "FCFS", "kind": "deterministic", "std_objective": 1.25,
+             "n_valid": 10, "n_seeds": 10}]
+    problems = self_check(rows)
+    assert len(problems) == 1
+    assert "FCFS" in problems[0]
+
+
+def test_self_check_flags_a_deterministic_method_that_mostly_failed():
+    """With fewer than two valid runs the spread is zero by definition, so a
+    method that failed almost every seed must not pass the determinism check."""
+    rows = [{"method": "FCFS", "kind": "deterministic", "std_objective": 0.0,
+             "n_valid": 1, "n_seeds": 10}]
     problems = self_check(rows)
     assert len(problems) == 1
     assert "FCFS" in problems[0]
 
 
 def test_self_check_allows_a_stochastic_method_to_vary():
-    rows = [{"method": "SA", "kind": "stochastic", "std_objective": 11.0}]
+    rows = [{"method": "SA", "kind": "stochastic", "std_objective": 11.0,
+             "n_valid": 10, "n_seeds": 10}]
     assert self_check(rows) == []
 
 
