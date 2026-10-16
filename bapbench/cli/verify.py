@@ -15,6 +15,7 @@ from ..verification.benchmarks import (
     case_two_implementations_agree,
 )
 from ..verification.exhaustive import verify_instance
+from ..verification.jobshop import job_shop_optimum
 
 
 def check(name: str, ok: bool, detail: str = "") -> bool:
@@ -89,12 +90,33 @@ def benchmark_families() -> bool:
     return all(results)
 
 
+def job_shop_agreement() -> bool:
+    """The job-shop MILP must match an exact search that uses no solver."""
+    from ..models.classical import JobShopMILP, make_simple_problem, to_instance_view
+
+    results = []
+    for n, m in ((4, 3), (5, 3)):
+        prob = make_simple_problem(f"js_{n}x{m}", n, m, seed=51 + n,
+                                   horizon=n * 12 + 40)
+        routes = {j: list(range(m)) for j in range(n)}
+        milp = JobShopMILP(prob, routes=routes,
+                           instance_view=to_instance_view(prob)).solve()
+        proc = [[job.proc] * m for job in prob.jobs]
+        search = job_shop_optimum([list(range(m)) for _ in range(n)], proc,
+                                  time_budget=60.0)
+        ok = (milp.feasible and search.objective is not None
+              and abs(milp.objective - search.objective) < 1e-6)
+        results.append(check(f"job shop MILP matches exact search on {n}x{m}",
+                             ok, f"milp={milp.objective} search={search.objective}"))
+    return all(results)
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="bapbench verify",
                                 description="Independent verification suite.")
     p.add_argument("--skip", nargs="*", default=[],
                    choices=["formulations", "exhaustive", "objectives",
-                            "bounds", "benchmarks"])
+                            "bounds", "benchmarks", "jobshop"])
     args = p.parse_args(argv)
 
     groups = [
@@ -103,6 +125,7 @@ def main(argv: list[str] | None = None) -> int:
         ("objectives", "objective conventions", objective_definitions),
         ("bounds", "objective respects the arrival bound", bound_sanity),
         ("benchmarks", "known-optimum instance families", benchmark_families),
+        ("jobshop", "job shop against a solver-free exact search", job_shop_agreement),
     ]
 
     failures = 0

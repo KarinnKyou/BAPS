@@ -24,6 +24,7 @@ from ..models.classical import (
     single_machine_wspt,
     to_instance_view,
 )
+from ..verification.jobshop import job_shop_optimum
 
 
 def _write_csv(path: Path, rows: list[dict]) -> None:
@@ -207,8 +208,9 @@ def _permutations(items: list[int]):
             yield [x, *p]
 
 
-def job_shop(configs: list[tuple[int, int]], out: Path) -> list[dict]:
-    """Job shop MILP: feasibility and machine non-overlap, no independent optimum."""
+def job_shop(configs: list[tuple[int, int]], out: Path,
+             time_budget: float = 60.0) -> list[dict]:
+    """Job shop MILP against an exact branch-and-bound search that uses no solver."""
     rows = []
     for n, m in configs:
         P = make_simple_problem(f"js_{n}x{m}", n, m, seed=51 + n, horizon=n * 12 + 40)
@@ -218,15 +220,24 @@ def job_shop(configs: list[tuple[int, int]], out: Path) -> list[dict]:
         proc = [[j.proc for _ in range(m)] for j in P.jobs]
         # reference schedule: jobs in index order, each started as early as possible
         ref = _pfsp_makespan(proc, list(range(n)))
+
+        search = job_shop_optimum([list(range(m)) for _ in range(n)], proc,
+                                  time_budget=time_budget)
+        agree = (sch.feasible and search.objective is not None
+                 and abs(sch.objective - search.objective) < 1e-6)
         rows.append({
             "n": n, "m": m,
             "milp_C_max": sch.objective, "milp_feasible": sch.feasible,
+            "independent_C_max": search.objective,
+            "agree_with_independent": agree if search.objective is not None else None,
+            "search_nodes": search.nodes,
+            "search_time_s": round(search.wall_time, 4),
+            "search_note": search.note,
             "reference_C_max": ref,
             "not_worse_than_reference": (sch.feasible and sch.objective is not None
                                          and sch.objective <= ref),
             "upper_bound": makespan_upper_bound(P),
             "violations": "; ".join(sch.violations[:2]),
-            "independent_optimum": "not computed",
         })
     _write_csv(out / "W3e_job_shop.csv", rows)
     return rows
@@ -295,12 +306,14 @@ def main(argv: list[str] | None = None) -> int:
     if "jobshop" not in args.skip:
         cfg = [(args.jobshop[0], args.jobshop[1])]
         rows = job_shop(cfg, out)
-        print("Job shop: feasibility and comparison with a reference schedule")
-        print(f"  {'n':>3} {'m':>3} {'MILP':>8} {'ref':>8} {'not worse':>10}")
+        print("Job shop: MILP against an exact branch-and-bound search")
+        print(f"  {'n':>3} {'m':>3} {'MILP':>8} {'independent':>12} "
+              f"{'agree':>7} {'nodes':>9} {'time s':>8}")
         for r in rows:
             print(f"  {r['n']:>3} {r['m']:>3} {str(r['milp_C_max']):>8} "
-                  f"{str(r['reference_C_max']):>8} "
-                  f"{str(r['not_worse_than_reference']):>10}")
+                  f"{str(r['independent_C_max']):>12} "
+                  f"{str(r['agree_with_independent']):>7} "
+                  f"{r['search_nodes']:>9} {r['search_time_s']:>8}")
         print(f"  wrote {out / 'W3e_job_shop.csv'}\n")
 
     return 0
