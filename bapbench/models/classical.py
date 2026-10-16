@@ -137,14 +137,25 @@ def to_instance_view(P: SimpleProblem) -> Instance:
 
 def _to_schedule(inst_like, start: dict[int, int], machine_of: dict[int, int],
                  prob: SimpleProblem, solver: str, wall: float,
-                 nvars: int, ncons: int, nbin: int) -> Schedule:
-    """Wrap a classical solution as a Schedule to reuse the same metrics."""
+                 nvars: int, ncons: int, nbin: int,
+                 objective: str = "sum_C") -> Schedule:
+    """Wrap a classical solution as a Schedule to reuse the same metrics.
+
+    The objective must be reported in the units the model minimised: summing the
+    completion times gives a different number from their maximum, so reporting the
+    wrong one silently mislabels the result.
+    """
     assign = {j: (machine_of[j], start[j]) for j in range(prob.n)}
     sch = Schedule(assign=assign, solver=solver, wall_time=wall,
                    extra={"vars": nvars, "cons": ncons, "binaries": nbin})
     sch.check(inst_like)
     comp = sch.completion(inst_like)
-    sch.objective = float(sum(comp.values()))
+    if objective == "sum_C":
+        sch.objective = float(sum(comp.values()))
+    elif objective == "C_max":
+        sch.objective = float(max(comp.values()))
+    else:
+        raise ValueError(f"unknown objective: {objective}")
     return sch
 
 
@@ -331,7 +342,8 @@ class ParallelMachineMILP:
                 raise RuntimeError(f"no assignment read for job J{j}")
             mach_of[j], start[j] = hit
         return _to_schedule(self.instance_view, start, mach_of, self.prob,
-                            "PM-MILP", wall, nv, nc, nb)
+                            "PM-MILP", wall, nv, nc, nb,
+                            objective=self.objective)
 
 
 
