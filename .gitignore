@@ -24,3 +24,7 @@ results/**/*.svg
 .vscode/
 .DS_Store
 Thumbs.db
+
+# local scratch
+_diag.py
+
