@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bapbench"
+version = "0.1.0"
+description = "Dynamic berth allocation: exact models, verified baselines and a rolling horizon"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dependencies = [
+    "pulp>=3.0",
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+baps = "bapbench.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["baps*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

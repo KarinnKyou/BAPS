@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+
+# Experiment output. Generated tables are kept because they are small and make
+# the reported numbers checkable without re-running anything; charts are not.
+results/**/*.png
+results/**/*.pdf
+results/**/*.svg
+
+# Solver scratch files
+*.lp
+*.mps
+*.sol
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

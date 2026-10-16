@@ -1,0 +1,26 @@
+Initial release: dynamic berth allocation with exact models, baselines and a rolling horizon
+
+Extracted from the phase-1 research workspace into a standalone package.
+
+Package layout:
+  bapbench/instances.py       instance model, generators, schedule checking
+  bapbench/metrics.py         objective conventions, gap, Gantt charts
+  bapbench/dynamics.py        disruption events, tiered-commitment rolling horizon
+  bapbench/models/            MILP formulations (berth allocation, classical scheduling)
+  bapbench/heuristics/        constructive rules, metaheuristics, solver configurations
+  bapbench/verification/      solver-free enumerator, provable-optimum instance families
+  bapbench/cli/               demo, verify, compare, heuristics, dynamic
+
+The package replaces the research workspace's sys.path bootstrap with ordinary
+package-relative imports, and writes experiment output to results/ (configurable
+with --out) instead of back into a weekly report directory.
+
+Known gaps, recorded rather than hidden:
+  - The enumerator and the feasibility check initially enforced only an aggregate
+    quay-length test, which accepts two short vessels sharing one berth and so
+    disagrees with the models' whole-berth occupancy rule. Both now enforce
+    occupancy, closures and the crane limit.
+  - pytest is not installed in the development interpreter used here, so the
+    suite in tests/ has not been executed end to end. Install with
+    `pip install -e ".[dev]"`.
+  - No published benchmark set is bundled; see the README for why.
