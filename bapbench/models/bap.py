@@ -59,6 +59,10 @@ class BAPTimeIndexed:
     # postpones the start, start_fixed=True pins berth and start.
     lock: dict = field(default_factory=dict)
     lock_start_free: bool = False     # read every lock as berth-only
+    # Drop the integrality restrictions and solve the LP relaxation. Its optimum
+    # is a valid lower bound for the integer problem and is used as a reference
+    # where no proved optimum exists.
+    relax: bool = False
 
     problem: object = None
     x: dict = None
@@ -118,14 +122,22 @@ class BAPTimeIndexed:
         self._starts_cache = starts
 
         x: dict[tuple[int, int, int], pulp.LpVariable] = {}
+        # A Binary variable is implicitly bounded to [0, 1]; a Continuous one is
+        # not, so the relaxation must state the bounds or the LP is unbounded.
+        if self.relax:
+            bounds = {"lowBound": 0, "upBound": 1, "cat": "Continuous"}
+        else:
+            bounds = {"cat": "Binary"}
         for i in range(n):
             for k in range(m):
                 for t in starts[(i, k)]:
-                    x[(i, k, t)] = prob.add_variable(f"x_{i}_{k}_{t}", cat="Binary")
-        U = {(i, k): prob.add_variable(f"U_{i}_{k}", cat="Binary")
-             for i in range(n) for k in range(m)}
-
-        self.problem, self.x, self.U = prob, x, U
+                    x[(i, k, t)] = prob.add_variable(f"x_{i}_{k}_{t}", **bounds)
+        # No per-(vessel, berth) indicator variables: `assign_i` below already
+        # forces exactly one start per vessel, and the per-period rows enforce
+        # capacity. Such an indicator was carried but never consulted, and
+        # because nothing bounded it from below it made the LP relaxation
+        # unbounded.
+        self.problem, self.x, self.U = prob, x, {}
 
         if self.objective == "sum_C":
             prob.setObjective(pulp.lpSum(
@@ -153,12 +165,11 @@ class BAPTimeIndexed:
                     "period at any berth, instance is infeasible")
             prob.addConstraint(pulp.lpSum(terms) == 1, name=f"assign_{i}")
 
-        for i in range(n):
-            for k in range(m):
-                terms = [x[(i, k, t)] for t in starts[(i, k)]]
-                expr = pulp.lpSum(terms) if terms else 0
-                prob.addConstraint(expr == U[(i, k)], name=f"defU_{i}_{k}")
-
+        # No U variables: nothing consults them. Assignment is enforced by
+        # `assign_i` below and capacity by the per-period rows, so an indicator
+        # per (vessel, berth) would only add free variables -- and would make the
+        # LP relaxation unbounded, since nothing bounds them from below.
+        self.problem, self.x, self.U = prob, x, {}
         # sum_i [i occupies k at t] * q_i <= L_k,
         # with q_i = L_k if full_berth else length_i
         for k in range(m):
@@ -216,6 +227,20 @@ class BAPTimeIndexed:
         # misdiagnoses the instance, so classify before deciding.
         solved = status == 1                       # Optimal: proved
         limited = status in LIMIT_STATUSES         # feasible, optimality unproven
+
+        if self.relax:
+            # The relaxation has no integer assignment to read; it exists to
+            # supply a bound. Only an optimally solved LP yields one.
+            value = (pulp.value(self.problem.objective)
+                     if solved and self.problem.objective is not None else None)
+            return Schedule(assign={}, objective=value,
+                            feasible=False, violations=[],
+                            solver="LP-TI", wall_time=wall,
+                            extra={"status": status_str, "is_relaxation": True,
+                                   "proved_optimal": solved,
+                                   "vars": self.problem.numVariables(),
+                                   "cons": self.problem.numConstraints()})
+
         if not solved and not limited:
             return Schedule(assign={}, objective=None, feasible=False,
                             violations=[f"solver returned {status_str}"],

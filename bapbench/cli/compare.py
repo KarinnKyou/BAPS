@@ -9,6 +9,7 @@ import sys
 import time
 from pathlib import Path
 
+from ..bounds import best_lower_bound
 from ..heuristics.constructive import BASELINES, run_all_baselines
 from ..instances import Instance, make_hard_instance, make_toy_instance
 from ..metrics import gap_pct
@@ -53,10 +54,17 @@ def build(spec: dict) -> Instance:
 
 def solve_exact(inst: Instance, objective: str, time_limit: float,
                 solver_kwargs: dict | None = None) -> tuple:
+    """Solve exactly, reporting feasibility and proof of optimality separately.
+
+    `proved` must come from the solver, not from the run being feasible: a
+    time-limited incumbent is an upper bound on the optimum, so treating it as
+    the optimum turns every gap computed against it into a wrong number.
+    """
     model = BAPTimeIndexed(inst, objective=objective, time_limit=time_limit,
                            mip_gap=0.0, solver_kwargs=solver_kwargs or {})
     sch = model.solve()
-    return sch, bool(sch.feasible and sch.objective is not None)
+    proved = bool(sch.extra.get("proved_optimal")) and sch.objective is not None
+    return sch, proved
 
 
 def _write_csv(path: Path, rows: list[dict]) -> None:
@@ -83,11 +91,20 @@ def compare(inst: Instance, objective: str, time_limit: float) -> list[dict]:
     exact, proved = solve_exact(inst, objective, time_limit)
     optimum = exact.objective if proved else None
 
+    # With no proved optimum the gap columns would be empty. A valid lower bound
+    # keeps the run reportable, provided the column says which reference it is.
+    if not proved:
+        bound = best_lower_bound(inst, objective, time_limit=30.0)
+        reference, ref_kind = bound.value, f"{bound.kind}_bound"
+    else:
+        reference, ref_kind = optimum, "exact_proved"
+
     row = {"instance": inst.name, "n": inst.n, "m": inst.m, "slack": inst.meta.get("slack"),
            "method": "MILP", "objective": optimum, "gap_pct": 0.0 if proved else None,
            "feasible": exact.feasible, "proved_optimal": proved,
            "wall_time_s": round(exact.wall_time, 4), "sum_waiting": None,
            "C_max": None, "berth_util": None,
+           "reference": reference, "reference_kind": ref_kind,
            "note": "" if proved else "optimality not proved within the time limit"}
     if proved:
         mt = exact.metrics(inst)
@@ -96,12 +113,13 @@ def compare(inst: Instance, objective: str, time_limit: float) -> list[dict]:
     rows.append(row)
 
     for name, sch in run_all_baselines(inst, objective).items():
-        gap = gap_pct(sch.objective, optimum) if sch.feasible else None
+        gap = gap_pct(sch.objective, reference) if sch.feasible else None
         rec = {"instance": inst.name, "n": inst.n, "m": inst.m,
                "slack": inst.meta.get("slack"), "method": name,
                "objective": sch.objective, "gap_pct": gap, "feasible": sch.feasible,
                "proved_optimal": False, "wall_time_s": round(sch.wall_time, 5),
                "sum_waiting": None, "C_max": None, "berth_util": None,
+               "reference": reference, "reference_kind": ref_kind,
                "note": "" if sch.feasible else "; ".join(sch.violations)}
         if sch.feasible:
             mt = sch.metrics(inst)

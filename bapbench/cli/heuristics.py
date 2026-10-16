@@ -6,8 +6,10 @@ import argparse
 import csv
 import statistics
 import sys
+import time
 from pathlib import Path
 
+from ..bounds import best_lower_bound
 from ..heuristics.constructive import BASELINES
 from ..heuristics.metaheuristics import HEURISTICS
 from ..heuristics.solver_configs import run_config_comparison
@@ -39,58 +41,94 @@ def _write_csv(path: Path, rows: list[dict]) -> None:
 
 
 def _run_one(inst, method: str, objective: str, seed: int, time_limit: float):
-    if method == "MILP":
-        return BAPTimeIndexed(inst, objective=objective, time_limit=time_limit,
-                              solver_kwargs={"gapRel": 0.0}).solve()
-    if method in BASELINES:
-        fn = BASELINES[method]
-        if method in ("SA", "GA"):
-            return fn(inst, objective, seed=seed)
-        return fn(inst, objective)
-    if method in HEURISTICS:
-        return HEURISTICS[method](inst, objective, seed)
-    raise KeyError(method)
+    """Run one method. Raises only for an unknown method name.
+
+    The greedy decoder cannot place every vessel on every instance -- an
+    unfavourable order can strand the last ones -- so a failed placement is
+    returned as ``(None, wall, False, reason)`` and recorded, not raised: a
+    method that cannot build a schedule is a result, not a crash.
+    """
+    t0 = time.perf_counter()
+    try:
+        if method == "MILP":
+            sch = BAPTimeIndexed(inst, objective=objective, time_limit=time_limit,
+                                 solver_kwargs={"gapRel": 0.0}).solve()
+        elif method in BASELINES:
+            fn = BASELINES[method]
+            sch = (fn(inst, objective, seed=seed) if method in ("SA", "GA")
+                   else fn(inst, objective))
+        elif method in HEURISTICS:
+            sch = HEURISTICS[method](inst, objective, seed)
+        else:
+            raise KeyError(method)
+    except RuntimeError as exc:
+        return None, time.perf_counter() - t0, False, str(exc)[:160]
+    return sch, None, None, None
 
 
 def _method_names() -> list[str]:
     return ["MILP"] + list(BASELINES) + list(HEURISTICS)
 
 
-def run_seeds(inst, objective: str, n_seeds: int, time_limit: float) -> list[dict]:
+def run_seeds(inst, objective: str, n_seeds: int, time_limit: float,
+              with_bound: bool = True) -> list[dict]:
     exact = BAPTimeIndexed(inst, objective=objective, time_limit=time_limit,
                            solver_kwargs={"gapRel": 0.0}).solve()
-    optimum = exact.objective if exact.feasible else None
+    proved = bool(exact.extra.get("proved_optimal")) and exact.objective is not None
+    optimum = exact.objective if proved else None
+
+    # An unproved exact value is an upper bound on the optimum, so using it as a
+    # reference would understate every gap. Fall back to a valid lower bound and
+    # label which reference was used.
+    bound = best_lower_bound(inst, objective, time_limit=30.0) if with_bound else None
+    if proved:
+        reference, ref_kind = float(exact.objective), "exact_proved"
+    elif bound is not None and bound.value is not None:
+        reference, ref_kind = float(bound.value), f"{bound.kind}_bound"
+    else:
+        reference, ref_kind = None, "none"
 
     names = _method_names()
     buckets: dict[str, list[tuple]] = {n: [] for n in names}
+    reasons: dict[str, list[str]] = {n: [] for n in names}
     for seed in range(n_seeds):
         for name in names:
-            sch = _run_one(inst, name, objective, seed, time_limit)
+            sch, wall, _n, reason = _run_one(inst, name, objective, seed, time_limit)
+            if sch is None:
+                buckets[name].append((None, wall, False))
+                reasons[name].append(reason or "placement failed")
+                continue
             ok = bool(sch.feasible and sch.objective is not None)
             buckets[name].append((sch.objective if ok else None, sch.wall_time, ok))
+            if not ok:
+                reasons[name].append("; ".join(sch.violations[:1]) or "infeasible")
 
     rows = []
     for name in names:
         vals = [v for (v, _t, ok) in buckets[name] if ok and v is not None]
         times = [t for (_v, t, _ok) in buckets[name]]
-        hits = sum(1 for v in vals if optimum is not None and abs(v - optimum) < 1e-6)
+        hits = sum(1 for v in vals
+                   if ref_kind == "exact_proved" and abs(v - reference) < 1e-6)
         mean = statistics.mean(vals) if vals else None
         rows.append({
             "instance": inst.name, "slack": inst.meta.get("slack"), "method": name,
             "kind": "deterministic" if name in DETERMINISTIC else "stochastic",
             "n_seeds": n_seeds, "n_valid": len(vals),
             "n_failed": sum(1 for (_v, _t, ok) in buckets[name] if not ok),
+            "failure_reason": reasons[name][0] if reasons[name] else "",
             "mean_objective": round(mean, 4) if mean is not None else None,
             "std_objective": round(statistics.pstdev(vals), 4) if len(vals) > 1 else 0.0,
             "min_objective": min(vals) if vals else None,
             "max_objective": max(vals) if vals else None,
-            "mean_gap_pct": gap_pct(mean, optimum) if mean is not None else None,
-            "best_gap_pct": gap_pct(min(vals), optimum) if vals else None,
-            "worst_gap_pct": gap_pct(max(vals), optimum) if vals else None,
+            "reference": round(reference, 4) if reference is not None else None,
+            "reference_kind": ref_kind,
+            "exact": optimum,
+            "mean_gap_pct": gap_pct(mean, reference) if mean is not None else None,
+            "best_gap_pct": gap_pct(min(vals), reference) if vals else None,
+            "worst_gap_pct": gap_pct(max(vals), reference) if vals else None,
             "hit_optimal": hits,
             "hit_optimal_pct": round(hits / n_seeds * 100.0, 1),
             "mean_wall_time_s": round(statistics.mean(times), 4) if times else None,
-            "optimal": optimum,
         })
     return rows
 
@@ -113,8 +151,11 @@ def cmd_multiseed(args) -> int:
         print(inst.summary())
         rows = run_seeds(inst, args.objective, args.seeds, args.time_limit)
         all_rows.extend(rows)
+        ref = rows[0]["reference"] if rows else None
+        ref_kind = rows[0]["reference_kind"] if rows else "none"
+        print(f"  reference = {ref} ({ref_kind})")
         print(f"  {'method':<10} {'kind':<14} {'mean':>9} {'sd':>8} {'best':>8} "
-              f"{'worst':>8} {'gap %':>8} {'optimal':>9}")
+              f"{'worst':>8} {'gap %':>8} {'hit ref':>9}")
         for r in rows:
             print(f"  {r['method']:<10} {r['kind']:<14} {str(r['mean_objective']):>9} "
                   f"{r['std_objective']:>8} {str(r['min_objective']):>8} "
@@ -138,27 +179,30 @@ def cmd_multiseed(args) -> int:
 def cmd_scaling(args) -> int:
     rows = []
     print(f"  {'n':>3} {'m':>3} {'exact':>9} {'proved':>7} {'best heur':>10} "
-          f"{'gap %':>8} {'exact s':>9}")
+          f"{'gap %':>8} {'ref kind':>12} {'exact s':>9}")
     for n in args.sizes:
         inst = make_toy_instance(f"scale_{n}x{args.berths}", n, args.berths,
                                  seed=100 + n, tight=True)
-        exact = BAPTimeIndexed(inst, objective=args.objective,
-                               time_limit=args.time_limit).solve()
-        proved = bool(exact.feasible and exact.objective is not None)
         r = run_seeds(inst, args.objective, args.seeds, args.time_limit)
-        heur = [x for x in r if x["method"] != "MILP" and x["min_objective"]]
+        reference = r[0]["reference"] if r else None
+        ref_kind = r[0]["reference_kind"] if r else "none"
+        exact = r[0]["exact"] if r else None
+        proved = ref_kind == "exact_proved"
+        heur = [x for x in r
+                if x["method"] != "MILP" and x["min_objective"] is not None]
         best = min(heur, key=lambda x: x["min_objective"]) if heur else None
         rows.append({
-            "n": n, "m": args.berths, "exact_obj": exact.objective if proved else None,
-            "proved": proved, "exact_time_s": round(exact.wall_time, 4),
+            "n": n, "m": args.berths, "exact_obj": exact,
+            "proved": proved, "exact_time_s": None,
+            "reference": reference, "reference_kind": ref_kind,
             "best_heuristic": best["min_objective"] if best else None,
             "best_heuristic_name": best["method"] if best else None,
-            "gap_pct": (gap_pct(best["min_objective"], exact.objective)
-                        if best and proved else None),
+            "gap_pct": (gap_pct(best["min_objective"], reference)
+                        if best and reference is not None else None),
         })
-        print(f"  {n:>3} {args.berths:>3} {str(rows[-1]['exact_obj']):>9} "
+        print(f"  {n:>3} {args.berths:>3} {str(exact):>9} "
               f"{str(proved):>7} {str(rows[-1]['best_heuristic_name']):>10} "
-              f"{str(rows[-1]['gap_pct']):>8} {exact.wall_time:>9.4f}")
+              f"{str(rows[-1]['gap_pct']):>8} {ref_kind:>12} {'':>9}")
     _write_csv(args.out / "scaling.csv", rows)
     print(f"\nwrote {args.out / 'scaling.csv'}")
     return 0

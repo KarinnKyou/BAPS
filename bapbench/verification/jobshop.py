@@ -1,9 +1,20 @@
-"""Exact job-shop optimum by branch and bound over active schedules, no solver.
+"""Job-shop optimum by branch and bound over NON-DELAY schedules, no solver.
 
-Independent of the MILP formulations, so agreement with them is evidence rather
-than self-consistency. Searches the set of active schedules, which is guaranteed
-to contain an optimum: at each step only operations whose earliest start equals
-the current scheduling time are branched on.
+Independent of the MILP formulation, so agreement with it is evidence rather
+than self-consistency.
+
+SCOPE: the search branches only on operations whose earliest start equals the
+global minimum earliest start (a non-delay schedule). The set of non-delay
+schedules is a subset of the active schedules, so the value returned is an
+UPPER bound on the optimum, not the optimum. The two coincide on the instances
+this package builds -- every operation of a job has the same duration and every
+job follows the identity route -- and the package's five job-shop instances were
+verified equal to the MILP on all of them. They differ in general: on 60 random
+job shops with per-operation durations and shuffled routes, 6 disagreed, always
+with this search reporting the larger value (e.g. 27 against an optimum of 24).
+Under-estimating is impossible; over-estimating is not. Use the MILP when the
+distinction matters, and treat `feasible=True, note=""` as "search completed",
+not as "proved optimal".
 
 Intended for small instances. Larger ones hit the time budget and report that
 instead of returning a value.
@@ -39,7 +50,10 @@ def _tails(proc: list[list[int]]) -> list[list[int]]:
 
 def job_shop_optimum(routes: list[list[int]], proc: list[list[int]],
                      time_budget: float = 120.0) -> JobShopOptimum:
-    """Minimise C_max exactly, or report why it could not be done.
+    """Best non-delay schedule found, or a report of why none was.
+
+    This is an upper bound on the optimum, not the optimum in general; see the
+    module docstring for the scope and the evidence.
 
     routes[j][k] is the machine of operation k of job j; proc[j][k] its duration.
     """
