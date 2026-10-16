@@ -427,6 +427,12 @@ class BAPDisjunctive:
         for i in range(n):
             for j in range(i + 1, n):
                 pi_, pj_ = inst.vessels[i].handle, inst.vessels[j].handle
+                if pi_ <= 0 or pj_ <= 0:
+                    # A vessel with no handling time occupies no period, so it
+                    # cannot be ordered against another. The disjunction would
+                    # otherwise force it entirely before or entirely after, which
+                    # excludes schedules the instance admits.
+                    continue
                 for k in range(m):
                     both = prob.add_variable(f"both_{i}_{j}_{k}", cat="Binary")
                     prob.addConstraint(both <= x[(i, k)])

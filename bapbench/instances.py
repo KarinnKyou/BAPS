@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import math
+import random
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
@@ -322,26 +323,46 @@ def make_hard_instance(
     periods out of every `tidal_period` on each berth with a per-berth phase,
     and a terminal-wide limit of `crane_limit` vessels handled at once.
     """
-    # The vessel set must not depend on the horizon being swept. `arrive` is
-    # drawn from a range that scales with the horizon, so generating the instance
-    # afresh per horizon would compare different fleets and make feasibility
-    # non-monotone in `slack`. Build the fleet once and retarget the horizon.
-    base = make_toy_instance(name, n_vessels, n_berths, horizon=BASE_HORIZON,
-                             seed=seed, tight=True)
-    p_sum = sum(v.handle for v in base.vessels)
-    p_max = max(v.handle for v in base.vessels)
+    # The vessel set must not depend on the horizon being swept. `arrive` is drawn
+    # from a range that scales with the horizon, and a `randint` consumes a
+    # width-dependent number of random bits, so calling the toy generator once per
+    # horizon yields a different fleet each time: feasibility would then be
+    # non-monotone in `slack`, and the lower bound and berth length would describe
+    # vessels that are not shipped. Draw the fleet once, here, and derive the
+    # horizon, the bound and the berth length from that one draw.
+    rng = random.Random(seed)
+    vessels = []
+    for i in range(n_vessels):
+        vessels.append(Vessel(
+            vid=i, name=f"V{i + 1:02d}",
+            length=rng.choice([120, 150, 180, 200, 240]),
+            arrive=rng.randint(0, max(1, BASE_HORIZON // 4)),
+            handle=rng.randint(4, 12),
+            priority=rng.randint(1, 3)))
+    p_sum = sum(v.handle for v in vessels)
+    p_max = max(v.handle for v in vessels)
     lower_bound = p_max + math.ceil(p_sum / max(1, n_berths))
     if horizon is None:
         horizon = max(int(math.ceil(lower_bound * slack)), p_max + 1)
 
-    # Build once, at the horizon that is actually used and with a berth length
-    # derived from the same fleet. Drawing a fleet at one horizon and discarding
-    # it left the berth length describing vessels that are not in the instance,
-    # and left arrivals drawn against the discarded horizon -- which can place a
-    # vessel's arrival past a short horizon's end.
-    berth_length = int(math.ceil(1.5 * max(v.length for v in base.vessels)))
-    inst = make_toy_instance(name, n_vessels, n_berths, horizon=horizon,
-                             seed=seed, tight=True, berth_length=berth_length)
+    # A vessel must be able to finish inside the horizon. `arrive` was drawn
+    # against the base horizon, which a tight horizon can fall below, so an
+    # arrival is pulled back rather than leaving the generator's own output
+    # carrying a vessel that its own validator calls truncated.
+    for v in vessels:
+        if v.arrive + v.handle > horizon:
+            v.arrive = max(0, horizon - v.handle)
+
+    # The berth length comes from this fleet, so no shipped vessel can be longer
+    # than its berth.
+    berth_length = int(math.ceil(1.5 * max(v.length for v in vessels)))
+    inst = Instance(
+        name=name, vessels=vessels,
+        berths=[Berth(bid=k, name=f"B{k + 1}", length=berth_length)
+                for k in range(n_berths)],
+        horizon=horizon,
+        meta={"generator": "make_hard_instance", "seed": seed,
+              "berth_length": berth_length, "tight": True})
     if tidal:
         windows = {}
         for k in range(n_berths):
@@ -444,8 +465,11 @@ class Schedule:
         # summed vessel lengths instead would let two short vessels share a berth,
         # which the exact model does not permit.
         for b in inst.berths:
+            # A vessel with no handling time occupies no period, so it is left out
+            # of the clash test; the models count occupancy the same way.
             spans = sorted((st, st + cmap[vid].handle, vid)
-                           for vid, (bid, st) in self.assign.items() if bid == b.bid)
+                           for vid, (bid, st) in self.assign.items()
+                           if bid == b.bid and cmap[vid].handle > 0)
             for (s1, e1, v1), (s2, _e2, v2) in zip(spans, spans[1:]):
                 if s2 < e1:
                     viol.append(

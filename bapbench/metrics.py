@@ -259,6 +259,11 @@ def berth_overlaps(inst, assign: dict[int, tuple[int, int]]) -> list[str]:
             problems.append(f"berth {bid} is out of range for {inst.vessels[vid].name}")
             continue
         v = inst.vessels[vid]
+        if v.handle <= 0:
+            # A vessel with no handling time occupies no period, so it cannot clash
+            # with another; the models count occupancy the same way, adding no
+            # capacity or crane term for it.
+            continue
         by_berth.setdefault(bid, []).append((st, st + v.handle, vid))
     for bid, spans in by_berth.items():
         spans.sort()
