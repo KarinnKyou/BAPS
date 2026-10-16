@@ -215,9 +215,14 @@ pip install -e ".[dev]"
 pytest
 ```
 
-25 tests covering the two formulations, their agreement with the solver-free
-enumerator, the known-optimum families, schedule checking, and the disruption and
-rolling-horizon behaviour.
+29 tests covering the two formulations and their agreement on constrained
+instances, the solver-free enumerator, the known-optimum families, schedule
+checking, and the disruption and rolling-horizon behaviour.
+
+During development the available interpreter had no `setuptools`, so
+`pip install -e .` was never exercised. The package imports and the CLI run from
+the project root without installation, so this affects packaging only, not the
+code; installing should work once `setuptools` is present.
 
 ## License
 
