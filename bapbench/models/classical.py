@@ -175,14 +175,21 @@ def makespan_upper_bound(P: SimpleProblem) -> int:
             + P.m * sum(j.proc for j in P.jobs))
 
 
-def _machine_load_lb(P: SimpleProblem) -> int:
-    """Machine-load lower bound on makespan.
+def _require_no_release_dates(P: SimpleProblem, model: str) -> None:
+    """Reject an instance this model cannot represent.
 
-    A valid flow-shop bound must also add the minimum tail time after the
-    machine; machine load alone under-estimates it.
+    The flow-shop and job-shop formulations start every job at time zero and do
+    not carry release dates, so an instance with them would be solved as a
+    different problem and returned as infeasible (the adapter's feasibility check
+    sees starts before arrivals). Failing loudly beats returning a schedule for
+    the wrong problem.
     """
-    return max(j.proc for j in P.jobs) if P.jobs else 0
-
+    if any(j.release for j in P.jobs):
+        raise ValueError(
+            f"{model} does not support release dates, but this instance has them "
+            f"(min {min(j.release for j in P.jobs)}, "
+            f"max {max(j.release for j in P.jobs)}); use ParallelMachineMILP, "
+            f"which carries r_j, or clear the releases")
 
 
 # 1| |sum C_j: SPT rule, polynomial, no MILP needed
@@ -368,6 +375,7 @@ class FlowShopMILP:
     def build(self):
         P = self.prob
         n, m, T = P.n, P.m, P.horizon
+        _require_no_release_dates(P, "FlowShopMILP")
         model = pulp.LpProblem(f"FS_{P.name}", pulp.LpMinimize)
         UB = makespan_upper_bound(P)
         M = UB + 1
@@ -458,10 +466,10 @@ class JobShopMILP:
     def build(self):
         P = self.prob
         n, m, T = P.n, P.m, P.horizon
+        _require_no_release_dates(P, "JobShopMILP")
         if self.routes is None:
             # Default route: 0..m-1 for every job
             self.routes = {j: list(range(m)) for j in range(n)}
-        M = P.horizon + sum(j.proc for j in P.jobs) + 1
 
         model = pulp.LpProblem(f"JS_{P.name}", pulp.LpMinimize)
         UB = makespan_upper_bound(P)
