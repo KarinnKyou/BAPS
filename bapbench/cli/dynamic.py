@@ -150,10 +150,21 @@ def cmd_multiseed(args) -> int:
 
     _write_csv(args.out / "multiseed.csv", rows)
     print(f"\nwrote {args.out / 'multiseed.csv'}")
-    if all(r["regret_pct"] == 0 for r in rows if r["regret_pct"] is not None):
+
+    all_regrets = [r["regret_pct"] for r in rows if r["regret_pct"] is not None]
+    n_infeasible = sum(1 for r in rows if not r["feasible"])
+    if not all_regrets:
+        print(f"warning: no run produced a regret value "
+              f"({n_infeasible}/{len(rows)} runs had no feasible rolling schedule); "
+              f"nothing can be concluded about commitment")
+        return 1
+    if all(r == 0 for r in all_regrets):
         print("warning: every regret is zero, which usually means commitments "
               "are not being enforced")
         return 1
+    if n_infeasible:
+        print(f"warning: {n_infeasible}/{len(rows)} runs produced no feasible "
+              f"rolling schedule and are excluded from the regret statistics")
     return 0
 
 

@@ -14,6 +14,19 @@ import pulp
 
 from ..instances import Instance, Schedule
 
+# Solver statuses that mean "a solution may exist but optimality was not proved".
+# Treating these as infeasible discards a usable schedule and misleads the caller.
+LIMIT_STATUSES = frozenset({
+    -4,   # TimeLimit
+    -5,   # MemoryLimit
+    -6,   # NodeLimit
+    -7,   # GapLimit
+    -8,   # IterationLimit
+    -9,   # SolutionLimit
+    -10,  # Interrupted
+    -11,  # Stopped
+})
+
 
 def safe_big_m(inst: Instance) -> int:
     """Big-M for the pairwise ordering constraints.
@@ -184,13 +197,20 @@ class BAPTimeIndexed:
         stats = self.problem.solve(pulp.HiGHS(**kwargs))
         wall = time.perf_counter() - t0
         status = getattr(stats, "status", None)
+        status_str = str(getattr(stats, "status_str", None) or status)
         inst = self.inst
 
-        if status != 1:
+        # A solver that hits a limit can still have a feasible solution in hand.
+        # Reporting those as infeasible both discards a usable schedule and
+        # misdiagnoses the instance, so classify before deciding.
+        solved = status == 1                       # Optimal: proved
+        limited = status in LIMIT_STATUSES         # feasible, optimality unproven
+        if not solved and not limited:
             return Schedule(assign={}, objective=None, feasible=False,
-                            violations=[f"no optimal solution, status={status}"],
+                            violations=[f"solver returned {status_str}"],
                             solver="MILP-TI", wall_time=wall,
-                            extra={"status": str(status), "solver_kwargs": dict(kwargs)})
+                            extra={"status": status_str, "proved_optimal": False,
+                                   "solver_kwargs": dict(kwargs)})
 
         assign: dict[int, tuple[int, int]] = {}
         for i in range(inst.n):
@@ -204,11 +224,21 @@ class BAPTimeIndexed:
                 if hit:
                     break
             if hit is None:
+                if limited:
+                    # limit reached before any integer solution was found
+                    return Schedule(assign={}, objective=None, feasible=False,
+                                    violations=[f"solver returned {status_str} "
+                                                f"before finding a feasible solution"],
+                                    solver="MILP-TI", wall_time=wall,
+                                    extra={"status": status_str,
+                                           "proved_optimal": False,
+                                           "solver_kwargs": dict(kwargs)})
                 raise RuntimeError(f"no assignment found for vessel V{i}")
             assign[i] = hit
 
         sch = Schedule(assign=assign, solver="MILP-TI", wall_time=wall,
-                       extra={"big_m": self.big_m, "status": str(status),
+                       extra={"big_m": self.big_m, "status": status_str,
+                              "proved_optimal": solved,
                               "vars": self.problem.numVariables(),
                               "cons": self.problem.numConstraints(),
                               "objective_raw": pulp.value(self.problem.objective)})
@@ -348,19 +378,31 @@ class BAPDisjunctive:
         stats = self.problem.solve(pulp.HiGHS(**kwargs))
         wall = time.perf_counter() - t0
         status = getattr(stats, "status", None)
+        status_str = str(getattr(stats, "status_str", None) or status)
         inst = self.inst
-        if status != 1:
+        solved = status == 1
+        limited = status in LIMIT_STATUSES
+        if not solved and not limited:
             return Schedule(assign={}, objective=None, feasible=False,
-                            violations=[f"no optimal solution, status={status}"],
+                            violations=[f"solver returned {status_str}"],
                             solver="MILP-DJ", wall_time=wall,
-                            extra={"status": str(status)})
+                            extra={"status": status_str, "proved_optimal": False})
         assign = {}
-        for i in range(inst.n):
-            k = max(range(inst.m), key=lambda kk: self.x[(i, kk)].value() or 0.0)
-            assign[i] = (k, int(round(self.b[i].value())))
+        try:
+            for i in range(inst.n):
+                k = max(range(inst.m), key=lambda kk: self.x[(i, kk)].value() or 0.0)
+                assign[i] = (k, int(round(self.b[i].value())))
+        except (TypeError, ValueError):
+            # a limit can be reached before an integer solution exists
+            return Schedule(assign={}, objective=None, feasible=False,
+                            violations=[f"solver returned {status_str} before "
+                                        f"finding a feasible solution"],
+                            solver="MILP-DJ", wall_time=wall,
+                            extra={"status": status_str, "proved_optimal": False})
         sch = Schedule(assign=assign, solver="MILP-DJ", wall_time=wall,
                        extra={"vars": self.problem.numVariables(),
-                              "cons": self.problem.numConstraints()})
+                              "cons": self.problem.numConstraints(),
+                              "status": status_str, "proved_optimal": solved})
         sch.check(inst)
         sch.compute_objective(inst, self.objective)
         return sch

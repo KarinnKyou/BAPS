@@ -132,8 +132,14 @@ class SanityIssue:
     detail: str
 
 
-def sanity_check_schedule(inst, assign: dict[int, tuple[int, int]]) -> list[SanityIssue]:
-    """Re-check a schedule without going through Schedule.check."""
+def sanity_check_schedule(inst, schedule_or_assign) -> list[SanityIssue]:
+    """Re-check a schedule without going through Schedule.check.
+
+    Accepts either a Schedule or a plain {vid: (berth, start)} mapping. This is
+    a second, independent pass over the same assignment, so a schedule is only
+    reported when both paths agree that it is feasible.
+    """
+    assign = getattr(schedule_or_assign, "assign", schedule_or_assign)
     issues: list[SanityIssue] = []
     if set(assign) != set(range(inst.n)):
         issues.append(SanityIssue(
@@ -152,8 +158,35 @@ def sanity_check_schedule(inst, assign: dict[int, tuple[int, int]]) -> list[Sani
                                       f"{v.name} finishes at {st + v.handle} beyond horizon"))
         if any(inst.blocked(bid, t) for t in range(st, st + v.handle)):
             issues.append(SanityIssue("tidal", f"{v.name} straddles a blocked period"))
+
+        # Crane capacity, including any failure window that lowers it.
+        limit = getattr(inst, "quay_crane_limit", None)
+        if limit is not None:
+            bad = [t for t in range(st, min(st + v.handle, inst.horizon))
+                   if inst.crane_capacity(t) is not None
+                   and inst.crane_capacity(t) < limit]
+            if bad:
+                issues.append(SanityIssue(
+                    "crane_window",
+                    f"{v.name} works at t={bad[0]} when only "
+                    f"{inst.crane_capacity(bad[0])} of {limit} cranes are usable"))
     issues.extend(SanityIssue("berth_overlap", p)
                   for p in berth_overlaps(inst, assign))
+
+    # Concurrent vessels may not exceed the usable crane capacity in any period.
+    if getattr(inst, "quay_crane_limit", None) is not None:
+        busy = [0] * inst.horizon
+        for vid, (_bid, st) in assign.items():
+            for t in range(st, min(st + inst.vessels[vid].handle, inst.horizon)):
+                busy[t] += 1
+        over = [t for t, c in enumerate(busy)
+                if inst.crane_capacity(t) is not None
+                and c > inst.crane_capacity(t)]
+        if over:
+            issues.append(SanityIssue(
+                "crane_limit",
+                f"peak {max(busy)} vessels exceeds the usable crane capacity "
+                f"in {len(over)} periods (first at t={over[0]})"))
     return issues
 
 

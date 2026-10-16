@@ -65,10 +65,10 @@ def run_config_comparison(inst: Instance, objective: str = "sum_C",
                          "error": f"{type(e).__name__}: {e}"})
             continue
 
-        # a time-limited run may stop before optimality is proved
-        proved = bool(sch.feasible and sch.objective is not None
-                      and (cfg.kwargs.get("gapRel") == 0.0
-                           or "timeLimit" not in cfg.kwargs))
+        # Optimality is claimed only when the solver reported it, never inferred
+        # from the configuration: a run with gapRel=0 and a time limit can stop
+        # on the limit and still look "exact" by its own settings.
+        proved = bool(sch.extra.get("proved_optimal")) and sch.feasible
         gap = None
         if reference is not None and sch.objective is not None:
             gap = round((sch.objective - reference) / reference * 100.0, 3) \
@@ -78,6 +78,7 @@ def run_config_comparison(inst: Instance, objective: str = "sum_C",
             "objective": sch.objective, "feasible": sch.feasible,
             "wall_time_s": round(sch.wall_time, 4),
             "proved_optimal": proved,
+            "solver_status": (sch.extra or {}).get("status"),
             "gap_pct": gap,
             "vars": (sch.extra or {}).get("vars"),
             "cons": (sch.extra or {}).get("cons"),
