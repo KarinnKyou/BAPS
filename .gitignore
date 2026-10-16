@@ -21,3 +21,6 @@ results/
 .vscode/
 .DS_Store
 Thumbs.db
+# pip leaves these in the current directory if it is interrupted
+pip-*
+

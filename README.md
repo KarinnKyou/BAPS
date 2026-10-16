@@ -1,190 +1,164 @@
 # BAPS
 
 Berth allocation benchmark: exact MILP models for the dynamic berth allocation
-problem, a set of baseline and metaheuristic solvers, an exhaustive verifier, and
-a rolling-horizon scheduler for disruptions.
+problem, baseline and metaheuristic solvers, an exhaustive verifier, and a
+rolling-horizon scheduler for disruptions.
 
-The point of this repository is not to propose a new algorithm. It is to give the
-berth allocation problem an implementation where **the optima are trustworthy**, so
+The purpose of this repository is not to propose a new algorithm. It is to give
+the berth allocation problem an implementation whose optima can be trusted, so
 that later method comparisons mean something.
 
 ## Why this exists
 
-Most BERth allocation papers compare heuristics against each other, on instances
+Most berth allocation papers compare heuristics against each other on instances
 they generate themselves, with no external reference point. That is a weak test:
-if the baseline is wrong or the exact model is subtly incorrect, every subsequent
+if a baseline is wrong or the exact model is subtly incorrect, every subsequent
 comparison inherits the error and nothing in the results reveals it.
 
-So this code is built around independent verification. For small instances the
-optimum is computed three ways that share no code:
+This code is therefore built around independent verification. On small instances
+the optimum is computed three ways that share no code:
 
 1. A time-indexed MILP assigning each vessel a berth and a start period.
 2. A disjunctive MILP using pairwise ordering variables instead of a time grid.
-3. Exhaustive enumeration with no solver involved at all.
+3. Exhaustive enumeration with no solver involved.
 
-All three must agree. In addition, several instance families are constructed so
+All three must agree. Several instance families are additionally constructed so
 that the optimum equals a provable lower bound, which gives the formulations an
-external reference rather than a self-consistency check.
+external reference rather than only a self-consistency check.
 
 ## Install
 
 ```
 python -m venv .venv
 .venv\Scripts\activate
+python -m pip install setuptools
 pip install -e .
 ```
 
-PuLP is used as the modelling layer. Only the HiGHS backend is required; no
-commercial solver is needed.
+PuLP is the modelling layer. Only the HiGHS backend is required; no commercial
+solver is needed.
 
-## Quick start
+The package also runs directly from the project root without installation, using
+`python -m bapbench.cli`.
+
+## Usage
 
 ```
 bapbench demo
 ```
 
 Solves one instance exactly, runs every baseline against it, prints the gaps, and
-writes a Gantt chart to `results/demo/gantt.png`. Add `--verify` to also compute
-the exhaustive optimum and assert the two agree.
+writes a Gantt chart to `results/demo/gantt.png`. Add `--verify` to compute the
+exhaustive optimum as well and assert that the two agree.
 
 ```
 bapbench verify
 ```
 
-Runs the full verification suite: the two formulations agree, the exact model
-matches enumeration, objective conventions are consistent, objectives never fall
-below the trivial bound, and the known-optimum instance families reproduce.
+Runs the verification suite: the two formulations agree, the exact model matches
+enumeration, objective conventions are consistent, objectives never fall below
+the trivial bound, and the known-optimum instance families reproduce.
 
 ```
-bapbench compare          # exact versus baselines, constraint ablation, slack and size scans
-bapbench heuristics       # metaheuristics across seeds; solver configurations
-bapbench dynamic          # disruption events and rolling-horizon regret
+bapbench compare      # exact versus baselines, constraint ablation, slack and size scans
+bapbench heuristics   # metaheuristics across seeds; solver configurations
+bapbench dynamic      # disruption events and rolling-horizon regret
 ```
 
-Every command writes its output under `results/`, and `--out` redirects it
-elsewhere. `bapbench <command> --help` lists the flags.
+Every command writes under `results/`, and `--out` redirects it. `bapbench
+<command> --help` lists the flags.
 
 ## What is in the box
 
-**Instances** (`bapbench/instances.py`) -- one `Instance` type shared by every
+**Instances** (`bapbench/instances.py`) — one `Instance` type shared by every
 method, so nothing is compared across different data. Time is in integer periods
 of `dt` hours. Alongside vessels and berths it carries two business constraints:
 berth closures (`tidal_windows`) and a quay-wide limit on simultaneously handled
 vessels, with temporary crane outages modelled as time windows.
 
-**Exact models** (`bapbench/models/bap.py`) -- the two MILP formulations above,
+**Exact models** (`bapbench/models/bap.py`) — the two MILP formulations above,
 for `sum_i C_i` and `C_max`. `bapbench/models/classical.py` holds the classical
-scheduling models they are related to: single machine, parallel machine,
-permutation flow shop, job shop.
+scheduling models they relate to: single machine, parallel machine, permutation
+flow shop, job shop.
 
-**Solvers** (`bapbench/heuristics/`) -- FCFS, LPT, SPT, greedy, simulated
+**Solvers** (`bapbench/heuristics/`) — FCFS, LPT, SPT, greedy, simulated
 annealing and a genetic algorithm, plus local search, iterated local search and
 ALNS. Every method searches over a permutation of vessels and shares one
 placement routine, so differences come from the priority rule or the search
 rather than from the decoding.
 
-**Verification** (`bapbench/verification/`) -- the solver-free enumerator and the
+**Verification** (`bapbench/verification/`) — the solver-free enumerator and the
 known-optimum instance families.
 
-**Dynamics** (`bapbench/dynamics.py`) -- four disruption kinds and a rolling
+**Dynamics** (`bapbench/dynamics.py`) — four disruption kinds and a rolling
 horizon that commits to decisions in tiers: a berth can be committed, since a
 berthed vessel cannot move, but a start period can only be postponed. Commitment
 happens only after the vessel's arrival has been observed. The final schedule is
 rebuilt against the realised instance, because decisions are made on predictions
 but must be costed on reality.
 
-## Calibration notes
+## Modelling notes
 
-Some things were measured rather than assumed, and they are easy to get wrong.
+Points that determine whether results are interpretable.
 
-**Difficulty comes from the horizon, not from the constraints.** Adding tidal
+**Difficulty comes from the horizon, not from the constraints.** Adding berth
 closures and a crane limit barely changes the gap between the exact optimum and
-the best heuristic -- with a loose horizon, vessels rarely contend for the same
+the best heuristic. With a loose horizon, vessels rarely contend for the same
 berth and simple greedy rules are already optimal. The parameter that matters is
-`slack = horizon / theoretical minimum horizon`. `make_hard_instance` exposes it.
-Tightening `slack` also eventually breaks the exact model itself: at `slack`
-around 1.3 optimality can no longer be proved within a 120 s limit, which is the
-regime this repository is meant to populate.
+`slack = horizon / theoretical minimum horizon`, exposed by `make_hard_instance`.
+Tightening it also eventually defeats the exact model itself: near `slack` 1.3
+optimality can no longer be proved within a 120 s limit, which is the regime this
+repository is meant to populate. Note that `make_hard_instance` defaults to
+`slack = 1.0`, which is infeasible once closures and a crane limit both apply —
+pass a larger value for constrained instances.
 
 **A big-M that is too small fails silently.** It does not produce infeasibility;
 it returns a plausible wrong answer, often with objective zero because the
 ordering constraints stop binding. `safe_big_m` recomputes the bound per instance
 rather than hard-coding a large constant.
 
-**The naive flow-shop lower bound is wrong.** Machine load alone under-estimates
-the makespan; the minimum tail time after the machine must be added. Similarly,
-`max_j r_j + sum_j p_j` is a valid makespan bound only for a single machine; with
-`m` machines the safe upper bound is `max_j r_j + m * sum_j p_j`.
+**Bounds must include the tail.** Machine load alone under-estimates a flow-shop
+makespan; the minimum remaining work after the machine has to be added. Likewise
+`max_j r_j + sum_j p_j` bounds the makespan only for a single machine; with `m`
+machines the safe upper bound is `max_j r_j + m * sum_j p_j`.
+
+**A vessel occupies its whole berth while handling.** This makes the capacity
+constraint equivalent to one vessel per berth-period and keeps the formulations
+compact. It also means the summed vessel lengths are not the relevant test:
+checking them would accept two short vessels side by side, which the models do
+not permit. `bapbench/metrics.py` provides `berth_overlaps` for the correct check.
 
 **Stochastic methods need repeated runs.** On 12-vessel instances the spread of a
-metaheuristic across seeds can exceed the difference between two methods. A
+metaheuristic across seeds can exceed the difference between two methods, so a
 single run can rank a method wrongly. `bapbench heuristics multiseed` reports the
-spread and asserts that deterministic methods have zero spread, which catches
-uncontrolled randomness leaking into the implementation.
+spread and asserts that deterministic methods have zero spread.
 
-**Rolling-horizon results are meaningless without decision commitment.** If every
-decision point re-optimises the whole horizon from scratch, the last decision
-point has already observed every disruption and the schedule collapses onto the
+**Rolling-horizon results depend on decision commitment.** If every decision
+point re-optimises the whole horizon from scratch, the last decision point has
+already observed every disruption and the schedule collapses onto the
 perfect-information optimum, so regret is identically zero. Commitments are
-therefore enforced, and `bapbench dynamic multiseed` fails loudly if all regrets come
-out zero.
-
-**Checking quay length is not the same as checking berth occupancy.** The exact
-model gives a vessel its whole berth while handling, so no two vessels may hold
-the same berth in the same period. An earlier version of the feasibility check
-only compared the summed vessel lengths against the berth length, which accepts
-two short vessels side by side and silently disagrees with the model. The
-enumerator had the same flaw, and because its schedule builder also ignored berth
-closures and the crane limit, it was solving a strictly easier problem and
-reporting optima below the true one. Both now enforce every constraint the model
-does; that is the only way agreement between them means anything.
-
-**A search that fills in start times greedily is not a search.** Choosing each
-vessel's earliest feasible start, in one order, misses feasible schedules even for
-a fixed berth assignment, and it reported "no feasible schedule" on instances the
-model solves. The enumerator now backtracks over each vessel's full candidate
-window. Two further defects surfaced while cross-checking it: occupancy was
-tracked in one array shared across berths, so a vessel on one berth blocked
-another, and the pruning bound used a sum where `C_max` needs a suffix maximum,
-which made the pruning unsound.
-
-**Partial information has to be modelled on the schedule, not the outcome.** The
-rolling horizon decided a delayed vessel was observable by testing its *realised*
-arrival against the current period. A vessel due at 6 but actually arriving at 15
-therefore still reported 6 until t=15, so the branch that falls back to the plan
-was unreachable for precisely the vessels it existed for. Which vessels are
-observable now follows from their scheduled arrival.
-
-**Checking the disjunctive formulation only on unrestricted instances hides its
-gaps.** `BAPDisjunctive` originally encoded berth non-overlap and quay capacity
-but not berth closures or the crane limit, so on a constrained instance it
-returned a schedule failing the independent feasibility check while agreeing
-perfectly with the time-indexed model on unrestricted toy instances. It now
-encodes both, and both formulations agree on constrained instances. The general
-lesson: two implementations agreeing on the easy cases says nothing about whether
-either is complete, so cross-checks have to include the constrained regime.
+enforced here, and `bapbench dynamic multiseed` reports if all regrets come out
+zero. Which vessels are observable at a given time follows from their scheduled
+arrival, not their realised one.
 
 ## Limitations
 
 - The exact models are practical only for small instances. The time-indexed
   formulation is `O(n*m*T)` in binaries and becomes slow well before real port
   scale.
-- A vessel occupies its whole berth while handling. This makes the capacity
-  constraint equivalent to one vessel per berth-period and keeps the formulation
-  compact, but it discards the ability to berth two short vessels on one berth
-  simultaneously. Relaxing it requires interval or position-based constraints.
+- A vessel occupies its whole berth, so two short vessels cannot share one berth.
+  Relaxing this requires interval or position-based constraints.
 - Time is discretised at `dt` hours, so solutions carry a quantisation error of
   that order. `dt` is reported in instance metadata and should accompany any
   result.
 - Disruption amplitudes in `make_events` are bounded so instances stay feasible.
   Behaviour at genuinely infeasible disruption levels is not modelled.
 - The instance families with provable optima are small by construction. They
-  validate the models and the exhaustive verifier; they do not benchmark
-  heuristics at scale.
-- No standard published benchmark set is bundled. Attempts to transcribe FT06
-  from memory produced inconsistent optima, which is why the provable-bound
-  families exist instead. Supplying authoritative benchmark files would be a
-  genuine improvement.
+  validate the models and the enumerator; they do not benchmark heuristics at
+  scale.
+- No standard published benchmark set is bundled. The provable-bound families are
+  used instead of transcribed tables, which are easy to get wrong. Supplying
+  authoritative benchmark files would be a genuine improvement.
 
 ## Layout
 
@@ -218,11 +192,6 @@ pytest
 29 tests covering the two formulations and their agreement on constrained
 instances, the solver-free enumerator, the known-optimum families, schedule
 checking, and the disruption and rolling-horizon behaviour.
-
-During development the available interpreter had no `setuptools`, so
-`pip install -e .` was never exercised. The package imports and the CLI run from
-the project root without installation, so this affects packaging only, not the
-code; installing should work once `setuptools` is present.
 
 ## License
 
