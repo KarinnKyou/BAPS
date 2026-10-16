@@ -227,6 +227,9 @@ class BAPTimeIndexed:
         # misdiagnoses the instance, so classify before deciding.
         solved = status == 1                       # Optimal: proved
         limited = status in LIMIT_STATUSES         # feasible, optimality unproven
+        # A stopped solver still leaves column values behind, and reading them
+        # yields an assignment that is not feasible anywhere.
+        has_solution = getattr(stats, "has_solution", True)
 
         if self.relax:
             # The relaxation has no integer assignment to read; it exists to
@@ -241,11 +244,13 @@ class BAPTimeIndexed:
                                    "vars": self.problem.numVariables(),
                                    "cons": self.problem.numConstraints()})
 
-        if not solved and not limited:
+        if not solved and not limited or not has_solution:
             return Schedule(assign={}, objective=None, feasible=False,
-                            violations=[f"solver returned {status_str}"],
+                            violations=[f"solver returned {status_str}"
+                                        + ("" if has_solution else " with no solution")],
                             solver="MILP-TI", wall_time=wall,
                             extra={"status": status_str, "proved_optimal": False,
+                                   "has_solution": has_solution,
                                    "solver_kwargs": dict(kwargs)})
 
         assign: dict[int, tuple[int, int]] = {}
@@ -299,6 +304,7 @@ class BAPDisjunctive:
     objective: str = "sum_C"
     time_limit: float | None = None
     msg: bool = False
+    solver_kwargs: dict = field(default_factory=dict)
 
     problem: object = None
     big_m: int = 0
@@ -410,6 +416,16 @@ class BAPDisjunctive:
         kwargs = {"msg": self.msg}
         if self.time_limit is not None:
             kwargs["timeLimit"] = self.time_limit
+        # Presolve must be off for this formulation. With HiGHS 1.15.1's default
+        # presolve the model can return a suboptimal objective while reporting
+        # status Optimal and a schedule its own check() accepts: on a 4-vessel,
+        # 3-berth instance with a crane limit it returned 44 where the
+        # time-indexed model, this model with presolve off, and an exhaustive
+        # search all return 42. Solving the same matrix written to an LP file also
+        # gives 42, so the fault is in the in-memory presolve path. Turning it off
+        # costs a little time and restores agreement.
+        kwargs.setdefault("presolve", "off")
+        kwargs.update(self.solver_kwargs or {})
         t0 = time.perf_counter()
         stats = self.problem.solve(pulp.HiGHS(**kwargs))
         wall = time.perf_counter() - t0
@@ -418,18 +434,24 @@ class BAPDisjunctive:
         inst = self.inst
         solved = status == 1
         limited = status in LIMIT_STATUSES
-        if not solved and not limited:
+        # A stopped solver still leaves column values behind, and reading them
+        # yields an assignment that is not feasible anywhere. `has_solution` is
+        # the solver's own statement that a solution exists, so gate on it rather
+        # than trusting whatever the variables happen to hold.
+        has_solution = getattr(stats, "has_solution", True)
+        if not solved and not limited or not has_solution:
             return Schedule(assign={}, objective=None, feasible=False,
-                            violations=[f"solver returned {status_str}"],
+                            violations=[f"solver returned {status_str}"
+                                        + ("" if has_solution else " with no solution")],
                             solver="MILP-DJ", wall_time=wall,
-                            extra={"status": status_str, "proved_optimal": False})
+                            extra={"status": status_str, "proved_optimal": False,
+                                   "has_solution": has_solution})
         assign = {}
         try:
             for i in range(inst.n):
                 k = max(range(inst.m), key=lambda kk: self.x[(i, kk)].value() or 0.0)
                 assign[i] = (k, int(round(self.b[i].value())))
         except (TypeError, ValueError):
-            # a limit can be reached before an integer solution exists
             return Schedule(assign={}, objective=None, feasible=False,
                             violations=[f"solver returned {status_str} before "
                                         f"finding a feasible solution"],
