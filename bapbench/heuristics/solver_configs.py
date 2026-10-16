@@ -13,6 +13,7 @@ import time
 from dataclasses import dataclass
 
 from ..instances import Instance, Schedule
+from ..metrics import gap_pct
 from ..models.bap import BAPTimeIndexed
 
 
@@ -69,10 +70,7 @@ def run_config_comparison(inst: Instance, objective: str = "sum_C",
         # from the configuration: a run with gapRel=0 and a time limit can stop
         # on the limit and still look "exact" by its own settings.
         proved = bool(sch.extra.get("proved_optimal")) and sch.feasible
-        gap = None
-        if reference is not None and sch.objective is not None:
-            gap = round((sch.objective - reference) / reference * 100.0, 3) \
-                if reference else None
+        gap = gap_pct(sch.objective, reference) if sch.feasible else None
         rows.append({
             "config": cfg.name, "note": cfg.note,
             "objective": sch.objective, "feasible": sch.feasible,

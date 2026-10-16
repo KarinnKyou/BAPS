@@ -9,7 +9,7 @@ import sys
 import time
 from pathlib import Path
 
-from ..bounds import best_lower_bound
+from ..bounds import reference_for
 from ..heuristics.constructive import BASELINES
 from ..heuristics.metaheuristics import HEURISTICS
 from ..heuristics.solver_configs import run_config_comparison
@@ -78,15 +78,14 @@ def run_seeds(inst, objective: str, n_seeds: int, time_limit: float,
     optimum = exact.objective if proved else None
 
     # An unproved exact value is an upper bound on the optimum, so using it as a
-    # reference would understate every gap. Fall back to a valid lower bound and
-    # label which reference was used.
-    bound = best_lower_bound(inst, objective, time_limit=30.0) if with_bound else None
-    if proved:
-        reference, ref_kind = float(exact.objective), "exact_proved"
-    elif bound is not None and bound.value is not None:
-        reference, ref_kind = float(bound.value), f"{bound.kind}_bound"
+    # reference would understate every gap. reference_for falls back to the
+    # strongest valid bound and labels which reference was used.
+    if with_bound:
+        reference, ref_kind = reference_for(inst, objective, exact.objective,
+                                            proved, time_limit=30.0)
     else:
-        reference, ref_kind = None, "none"
+        reference, ref_kind = (float(exact.objective), "exact_proved") if proved \
+            else (None, "none")
 
     names = _method_names()
     buckets: dict[str, list[tuple]] = {n: [] for n in names}

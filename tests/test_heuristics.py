@@ -1,11 +1,11 @@
 """Tests for the heuristics and metaheuristics.
 
-These were the only untested files in the package and the highest-risk ones: a
-heuristic that returns an infeasible schedule, or an objective it did not achieve,
-silently corrupts every comparison built on it. The tests therefore check
-properties that hold for any correct implementation (feasibility, a reproducible
-objective value, known bounds, determinism where the method is deterministic)
-rather than fixed numbers, plus the specific mechanisms each method relies on.
+These carry the highest risk in the package: a heuristic that returns an
+infeasible schedule, or an objective it did not achieve, silently corrupts every
+comparison built on it. The tests therefore check properties that hold for any
+correct implementation (feasibility, a reproducible objective value, known
+bounds, determinism where the method is deterministic) rather than fixed numbers,
+plus the specific mechanisms each method relies on.
 """
 
 from __future__ import annotations

@@ -9,7 +9,7 @@ import sys
 import time
 from pathlib import Path
 
-from ..bounds import best_lower_bound, trivial_lower_bound
+from ..bounds import reference_for, trivial_lower_bound
 from ..heuristics.constructive import BASELINES, run_all_baselines
 from ..instances import Instance, make_hard_instance, make_toy_instance
 from ..metrics import gap_pct
@@ -91,13 +91,11 @@ def compare(inst: Instance, objective: str, time_limit: float) -> list[dict]:
     exact, proved = solve_exact(inst, objective, time_limit)
     optimum = exact.objective if proved else None
 
-    # With no proved optimum the gap columns would be empty. A valid lower bound
-    # keeps the run reportable, provided the column says which reference it is.
-    if not proved:
-        bound = best_lower_bound(inst, objective, time_limit=30.0)
-        reference, ref_kind = bound.value, f"{bound.kind}_bound"
-    else:
-        reference, ref_kind = optimum, "exact_proved"
+    # With no proved optimum the gap columns would be empty. reference_for picks
+    # the strongest available lower bound and names it, so the column always says
+    # what a gap was measured against.
+    reference, ref_kind = reference_for(inst, objective, optimum, proved,
+                                        time_limit=30.0)
 
     row = {"instance": inst.name, "n": inst.n, "m": inst.m, "slack": inst.meta.get("slack"),
            "method": "MILP", "objective": optimum, "gap_pct": 0.0 if proved else None,
@@ -185,11 +183,8 @@ def slack_scan(out_dir: Path, objective: str, time_limit: float,
 
         # With no proved optimum, report the gap against a valid bound instead of
         # leaving the row empty.
-        if proved:
-            reference, ref_kind = exact.objective, "exact_proved"
-        else:
-            bound = best_lower_bound(inst, objective, time_limit=30.0)
-            reference, ref_kind = bound.value, f"{bound.kind}_bound"
+        reference, ref_kind = reference_for(inst, objective, exact.objective,
+                                            proved, time_limit=30.0)
 
         schedules = run_all_baselines(inst, objective)
         name, value = _best_feasible(schedules)

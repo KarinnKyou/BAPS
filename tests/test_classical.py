@@ -12,6 +12,7 @@ from bapbench.models.classical import (
     brute_force_single_machine,
     make_simple_problem,
     makespan_upper_bound,
+    parallel_search_work,
     single_machine_spt,
     single_machine_wspt,
     to_instance_view,
@@ -107,3 +108,52 @@ def test_job_shop_is_feasible_and_beats_a_reference_schedule():
     assert sch.feasible, sch.violations
     assert sch.objective is not None
     assert sch.objective <= makespan_upper_bound(prob)
+
+
+# --- the enumeration budget -----------------------------------------------------
+
+def test_search_work_counts_the_per_machine_orderings():
+    """A schedule is an assignment plus an ordering per machine. The multinomial
+    factor and the orderings cancel, leaving n! * C(n+m-1, m-1); counting only the
+    m**n assignments understates the work by a factor that grows with n."""
+    from math import comb, factorial
+
+    for n, m in ((4, 2), (6, 2), (5, 3), (8, 3)):
+        assert parallel_search_work(n, m, 100) == factorial(n) * comb(n + m - 1, m - 1)
+        assert parallel_search_work(n, m, 100) > m ** n
+
+
+def test_search_work_matches_the_schedules_actually_enumerated():
+    """The estimate must be the real total, not merely an upper bound."""
+    from itertools import permutations, product as iproduct
+    prob = make_simple_problem("work", 4, 2, seed=5, horizon=50)
+    n, m = prob.n, prob.m
+    count = 0
+    for combo in iproduct(range(m), repeat=n):
+        groups = {k: [] for k in range(m)}
+        for j in range(n):
+            groups[combo[j]].append(j)
+        permsets = [list(permutations(g)) for g in groups.values()]
+        for _ in iproduct(*permsets):
+            count += 1
+    # No machine is unavailable here, so the blocking factor is 1.
+    assert count == parallel_search_work(n, m, prob.horizon, 0.0)
+
+
+def test_the_budget_guard_actually_bounds_the_work():
+    """The guard has to refuse an enumeration larger than max_cases rather than
+    letting it run: that is the only thing the argument promises."""
+    prob = make_simple_problem("budget", 5, 2, seed=9, horizon=100)
+    real = parallel_search_work(prob.n, prob.m, prob.horizon)
+
+    assert brute_force_parallel(prob, "sum_C", max_cases=real - 1) is None
+    assert brute_force_parallel(prob, "sum_C", max_cases=real) is not None
+
+
+def test_search_work_never_understates_a_blocked_instance():
+    """Unavailable windows cost extra period-by-period steps, so the estimate for
+    a blocked instance may not fall below the unblocked one."""
+    plain = make_simple_problem("p", 5, 2, seed=3, horizon=100)
+    blocked = make_simple_problem("b", 5, 2, seed=3, horizon=100, unavailable=True)
+    assert parallel_search_work(blocked.n, blocked.m, blocked.horizon, 0.3) > \
+        parallel_search_work(plain.n, plain.m, plain.horizon, 0.0)

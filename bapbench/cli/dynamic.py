@@ -99,7 +99,7 @@ def run_rolling(planned, n_events: int, seed: int, dt: int, time_limit: float) -
 
     regret = None
     if ok and rolling_obj is not None and perfect_proved:
-        regret = round((rolling_obj - perfect.objective) / perfect.objective * 100.0, 3)
+        regret = gap_pct(rolling_obj, perfect.objective)
     return {
         "n_events": n_events, "seed": seed, "dt": dt,
         "perfect_objective": perfect.objective if perfect_proved else None,

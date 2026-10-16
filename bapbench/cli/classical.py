@@ -12,6 +12,7 @@ import sys
 import time
 from pathlib import Path
 
+from ..metrics import gap_pct
 from ..models.classical import (
     FlowShopMILP,
     JobShopMILP,
@@ -103,21 +104,15 @@ def single_machine_release(sizes: list[int], out: Path) -> list[dict]:
             "weights": " ".join(str(j.weight) for j in P.jobs),
             "spt_sum_C": spt_val,
             "brute_sum_C": bf_val,
-            "spt_gap_pct": _gap(spt_val, bf_val),
+            "spt_gap_pct": gap_pct(spt_val, bf_val),
             "spt_optimal": spt_val == bf_val,
             "wspt_sum_wC": wspt_val,
             "brute_sum_wC": bf_w,
-            "wspt_gap_pct": _gap(wspt_val, bf_w),
+            "wspt_gap_pct": gap_pct(wspt_val, bf_w),
             "wspt_optimal": wspt_val == bf_w,
         })
     _write_csv(out / "W3b_single_machine_release.csv", rows)
     return rows
-
-
-def _gap(value: float | None, optimum: float | None) -> float | None:
-    if value is None or optimum is None or optimum == 0:
-        return None
-    return round((value - optimum) / optimum * 100.0, 3)
 
 
 def brute_force_single_machine_weighted(prob) -> tuple[float | None, list[int] | None]:

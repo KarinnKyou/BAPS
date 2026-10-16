@@ -49,7 +49,6 @@ class BAPTimeIndexed:
     """
     inst: Instance
     objective: str = "sum_C"
-    full_berth: bool = True     # True: whole berth; relaxing needs interval rows
     time_limit: float | None = None
     mip_gap: float | None = None
     msg: bool = False
@@ -170,21 +169,21 @@ class BAPTimeIndexed:
         # per (vessel, berth) would only add free variables -- and would make the
         # LP relaxation unbounded, since nothing bounds them from below.
         self.problem, self.x, self.U = prob, x, {}
-        # sum_i [i occupies k at t] * q_i <= L_k,
-        # with q_i = L_k if full_berth else length_i
+        # A vessel occupies its whole berth, so one vessel per berth-period is
+        # both necessary and sufficient for quay capacity. Summing vessel lengths
+        # instead would admit two short vessels in one berth at the same time,
+        # which this model has no position variables to express.
         for k in range(m):
-            L_k = inst.berths[k].length
             for t in range(T):
                 terms = []
                 for i in range(n):
                     v = inst.vessels[i]
-                    q = L_k if self.full_berth else v.length
                     sub = [x[(i, k, tp)] for tp in starts[(i, k)]
                            if tp <= t <= tp + v.handle - 1]
                     if sub:
-                        terms.append(q * pulp.lpSum(sub))
+                        terms.append(pulp.lpSum(sub))
                 if terms:
-                    prob.addConstraint(pulp.lpSum(terms) <= L_k, name=f"cap_{k}_{t}")
+                    prob.addConstraint(pulp.lpSum(terms) <= 1, name=f"cap_{k}_{t}")
 
         # quay crane limit: simultaneous vessels per period, so an outage is a
         # time window rather than a constant

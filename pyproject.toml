@@ -20,10 +20,10 @@ dependencies = [
 dev = ["pytest>=7.0"]
 
 [project.scripts]
-baps = "bapbench.cli:main"
+bapbench = "bapbench.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["baps*"]
+include = ["bapbench*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

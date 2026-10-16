@@ -566,11 +566,43 @@ def brute_force_single_machine(prob: SimpleProblem,
     return best, best_order
 
 
+def parallel_search_work(n: int, m: int, horizon: int,
+                         blocked_fraction: float = 0.0) -> int:
+    """Number of complete schedules ``brute_force_parallel`` would evaluate.
+
+    Every assignment of n distinguishable jobs to m machines is followed by every
+    ordering on each machine. Grouping assignments by the machine load vector
+    (k_0 .. k_{m-1}) sums to
+
+        sum over sum(k_i) = n of  n!/prod(k_i!) * prod(k_i!)  =  n! * C(n+m-1, m-1)
+
+    since the multinomial factor and the orderings cancel. Counting only ``m**n``
+    assignments understates this badly and grows apart from it: at n=10, m=3 the
+    assignment count is 59,049 while the real enumeration is 9,239,040.
+
+    The blocking test walks one period at a time on an unavailable machine, which
+    multiplies each evaluated schedule by roughly ``1 + blocked_fraction``.
+    """
+    from math import comb, factorial
+
+    schedules = factorial(n) * comb(n + m - 1, m - 1)
+    return int(schedules * (1.0 + max(0.0, blocked_fraction)))
+
+
 def brute_force_parallel(prob: SimpleProblem, objective: str = "sum_C",
                          max_cases: int = 2_000_000) -> float | None:
-    """Exhaustive parallel-machine search over assignments and per-machine orders."""
+    """Exhaustive parallel-machine search over assignments and per-machine orders.
+
+    Returns None when the enumeration is estimated to exceed ``max_cases``, so the
+    caller can tell "too large to enumerate" from "no feasible schedule".
+    """
     n, m = prob.n, prob.m
-    if m ** n > max_cases:
+    blocked = 0.0
+    if prob.horizon and prob.machines:
+        covered = sum(1 for k in prob.machines
+                      for t in range(prob.horizon) if k.blocked(t))
+        blocked = covered / (len(prob.machines) * prob.horizon)
+    if parallel_search_work(n, m, prob.horizon, blocked) > max_cases:
         return None
     best = None
     for combo in __import__("itertools").product(range(m), repeat=n):
