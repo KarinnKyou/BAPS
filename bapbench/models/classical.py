@@ -173,7 +173,7 @@ def _to_schedule(inst_like, start: dict[int, int], machine_of: dict[int, int],
     return sch
 
 
-def makespan_upper_bound(P: SimpleProblem) -> int:
+def makespan_upper_bound(P: SimpleProblem, operations: int | None = None) -> int:
     """Safe makespan upper bound, used to bound C[j][k] and C_max.
 
     Processing all jobs serially on every machine gives
@@ -184,9 +184,15 @@ def makespan_upper_bound(P: SimpleProblem) -> int:
     to leave the optimum feasible. The single-machine form
     max_j r_j + sum_j p_j is not valid for m > 1, because a job still occupies
     each of the m machines in turn.
+
+    `operations` is the number of operations a job performs, which for a job shop
+    need not equal the number of machines: a route that revisits a machine performs
+    more operations, and using `m` would then cut off the true makespan and make a
+    feasible instance look infeasible.
     """
+    visits = P.m if operations is None else max(P.m, operations)
     return (max((j.release for j in P.jobs), default=0)
-            + P.m * sum(j.proc for j in P.jobs))
+            + visits * sum(j.proc for j in P.jobs))
 
 
 def _require_no_release_dates(P: SimpleProblem, model: str) -> None:
@@ -496,7 +502,11 @@ class JobShopMILP:
             self.routes = {j: list(range(m)) for j in range(n)}
 
         model = pulp.LpProblem(f"JS_{P.name}", pulp.LpMinimize)
-        UB = makespan_upper_bound(P)
+        # A route may revisit a machine, so the number of operations a job
+        # performs is its route length, not the machine count. Bounding the
+        # variables by `m` would cut off the true makespan of such a route and make
+        # a feasible instance look infeasible.
+        UB = makespan_upper_bound(P, operations=max(len(r) for r in self.routes.values()))
         M = UB + 1
         # s[j][k] = start time of job j's k-th operation
         s = {(j, k): model.add_variable(f"s_{j}_{k}", lowBound=0, upBound=UB, cat="Integer")
@@ -554,13 +564,13 @@ class JobShopMILP:
                                         f"{info['status']}"],
                             solver="JS-MILP", wall_time=wall,
                             extra={"vars": nv, "cons": nc, **info})
-        # As for the flow shop: a job is finished when its last operation ends, and
-        # the adapter carries that so `objective` and `assign` describe the same
-        # schedule.
-        last = len(self.routes[0]) - 1
-        start = {j: int(round(self.s[(j, last)].value()))
+        # A job is finished when its own last operation ends. Routes need not have
+        # the same length, so the last operation is looked up per job rather than
+        # taken from the first job's route.
+        start = {j: int(round(self.s[(j, len(self.routes[j]) - 1)].value()))
                  for j in range(self.prob.n)}
-        mach_of = {j: self.routes[j][last] for j in range(self.prob.n)}
+        mach_of = {j: self.routes[j][len(self.routes[j]) - 1]
+                   for j in range(self.prob.n)}
         return _to_schedule(self.instance_view, start, mach_of, self.prob,
                             "JS-MILP", wall, nv, nc, len(self.z),
                             objective=self.objective, check=False, status=info)

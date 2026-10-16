@@ -303,6 +303,10 @@ def generate_candidates(inst: Instance, objective: str = "sum_C",
     for v in inst.vessels:
         slots: list[Slot] = []
         for k in range(inst.m):
+            if v.length > inst.berths[k].length:
+                # A vessel occupies the whole berth, so it can only berth where its
+                # length fits, the same condition the models and the checkers apply.
+                continue
             for st in range(v.arrive, inst.horizon - v.handle + 1):
                 if all(not inst.blocked(k, t) for t in range(st, st + v.handle)):
                     slots.append(Slot(k, st,

@@ -19,9 +19,15 @@ from ..instances import Instance, Schedule
 def _earliest_feasible_start(inst: Instance, i: int, k: int, not_before: int) -> int | None:
     """Earliest start >= not_before for vessel i at berth k that avoids closures.
 
-    Returns None when the horizon holds no feasible start.
+    Returns None when the horizon holds no feasible start, or when the vessel is
+    longer than the berth: a vessel occupies the whole berth, so it can only berth
+    where its length fits. The exact models, the enumerator and both feasibility
+    checkers enforce that, so the decoder has to as well or it would produce a
+    schedule the package's own check rejects.
     """
     v = inst.vessels[i]
+    if v.length > inst.berths[k].length:
+        return None
     latest = inst.horizon - v.handle
     t = max(v.arrive, not_before)
     while t <= latest:
