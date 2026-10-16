@@ -56,11 +56,21 @@ def _blocked(inst: Instance, bid: int, start: int, handle: int) -> bool:
     return any(inst.blocked(bid, t) for t in range(start, start + handle))
 
 
-def _window(inst: Instance, bid: int, arrive: int, handle: int) -> list[int]:
-    """Start periods that fit the horizon and avoid the berth's closures."""
-    last = inst.horizon - handle
-    return [t for t in range(arrive, last + 1)
-            if not _blocked(inst, bid, t, handle)]
+def _window(inst: Instance, vid: int, bid: int) -> list[int]:
+    """Start periods that fit the horizon and avoid the berth's closures.
+
+    Empty when the vessel is longer than the berth: a vessel occupies the whole
+    berth, so it cannot berth where it does not fit. This is the same condition
+    `Instance.validate`, `Schedule.check` and `metrics.sanity_check_schedule`
+    enforce, and it has to be applied here too or the enumerator would report an
+    optimum the model and the checkers disagree about.
+    """
+    vessel = inst.vessels[vid]
+    if vessel.length > inst.berths[bid].length:
+        return []
+    last = inst.horizon - vessel.handle
+    return [t for t in range(vessel.arrive, last + 1)
+            if not _blocked(inst, bid, t, vessel.handle)]
 
 
 def _perm_upper(n: int, m: int) -> float:
@@ -81,9 +91,7 @@ def _search_assignment(inst: Instance, berth_of: dict[int, int], order: list[int
     n = len(order)
     handle = [inst.vessels[vid].handle for vid in order]
     span_of = [
-        [(st, range(st, st + handle[i]))
-         for st in _window(inst, berth_of[vid], inst.vessels[vid].arrive,
-                           handle[i])]
+        [(st, range(st, st + handle[i])) for st in _window(inst, vid, berth_of[vid])]
         for i, vid in enumerate(order)
     ]
     berth = [berth_of[vid] for vid in order]

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from typing import Callable
 
 import pulp
 
@@ -35,6 +36,30 @@ def safe_big_m(inst: Instance) -> int:
     a plausible wrong answer. Computed per instance as `horizon + 1`.
     """
     return inst.horizon + 1
+
+
+def stranded_vessels(inst: Instance,
+                     starts: Callable[[int, int], list[int]]) -> list[int]:
+    """Vessels with no feasible start at any berth, which makes the instance
+    infeasible before any solver is involved.
+
+    A vessel is stranded when a closure covers every one of its windows, when it
+    is longer than every berth, or both. Reporting that as an infeasible schedule
+    rather than raising keeps a caller that loops over instances from having to
+    catch, and lets `violations` say which case it was.
+    """
+    return [i for i in range(inst.n)
+            if not any(starts(i, k) for k in range(inst.m))]
+
+
+def infeasible_schedule(inst: Instance, stranded: list[int],
+                        solver: str) -> Schedule:
+    names = [inst.vessels[i].name for i in stranded]
+    return Schedule(
+        assign={}, feasible=False, objective=None, solver=solver,
+        violations=[f"{len(stranded)} vessels can berth at no berth: {names[:4]}"],
+        extra={"status": "Infeasible", "proved_optimal": False,
+               "has_solution": False})
 
 
 @dataclass
@@ -72,6 +97,17 @@ class BAPTimeIndexed:
         v = self.inst.vessels[i]
         return [t for t in range(v.arrive, self.inst.horizon - v.handle + 1)]
 
+    def _fits(self, i: int, k: int) -> bool:
+        """Whether vessel i is short enough to berth at berth k.
+
+        A vessel occupies the whole berth, so a vessel longer than the berth has no
+        feasible start there. `Instance.validate`, `Schedule.check` and
+        `metrics.sanity_check_schedule` all enforce this, so the model must too;
+        otherwise its proved optimum can be a schedule the package's own check
+        rejects, and that value becomes the reference for every reported gap.
+        """
+        return self.inst.vessels[i].length <= self.inst.berths[k].length
+
     def _starts_for(self, i: int, k: int) -> list[int]:
         """Start periods feasible for vessel i at berth k.
 
@@ -82,6 +118,8 @@ class BAPTimeIndexed:
         """
         inst = self.inst
         v = inst.vessels[i]
+        if not self._fits(i, k):
+            return []
         if self.lock and i in self.lock:
             raw = self.lock[i]
             # lock entry is (berth, start lower bound, fixed) -- the berth must
@@ -105,6 +143,12 @@ class BAPTimeIndexed:
                 return [t for t in self._starts(i) if t >= lock_lb and ok(t)]
             return pinned
         out = []
+        if not self._fits(i, k):
+            # A vessel occupies the whole berth, so it can only berth where its
+            # length fits. Leaving this out lets the model report an optimum that
+            # the package's own feasibility check rejects, which then becomes the
+            # reference every gap is measured against.
+            return out
         for t in self._starts(i):
             if all(not inst.blocked(k, tt) for tt in range(t, t + v.handle)):
                 out.append(t)
@@ -158,10 +202,6 @@ class BAPTimeIndexed:
 
         for i in range(n):
             terms = [x[(i, k, t)] for k in range(m) for t in starts[(i, k)]]
-            if not terms:
-                raise RuntimeError(
-                    f"vessel {inst.vessels[i].name} has no feasible start "
-                    "period at any berth, instance is infeasible")
             prob.addConstraint(pulp.lpSum(terms) == 1, name=f"assign_{i}")
 
         # No U variables: nothing consults them. Assignment is enforced by
@@ -205,6 +245,11 @@ class BAPTimeIndexed:
         return prob
 
     def solve(self) -> Schedule:
+        # A vessel that can berth nowhere makes the instance infeasible before the
+        # solver runs, so report that as a schedule rather than raising.
+        stranded = stranded_vessels(self.inst, self._starts_for)
+        if stranded:
+            return infeasible_schedule(self.inst, stranded, "MILP")
         if self.problem is None:
             self.build()
         kwargs: dict = {"msg": self.msg}
@@ -308,6 +353,22 @@ class BAPDisjunctive:
     problem: object = None
     big_m: int = 0
 
+    def _starts_for(self, i: int, k: int) -> list[int]:
+        """Start periods feasible for vessel i at berth k.
+
+        Empty when a closure covers every window or when the vessel is longer than
+        the berth, which is the same condition the time-indexed model applies and
+        the same one the package's feasibility checks enforce.
+        """
+        inst = self.inst
+        vessel = inst.vessels[i]
+        if vessel.length > inst.berths[k].length:
+            return []
+        last = inst.horizon - vessel.handle
+        return [t for t in range(vessel.arrive, last + 1)
+                if not any(inst.blocked(k, tt)
+                           for tt in range(t, t + vessel.handle))]
+
     def build(self):
         inst = self.inst
         n, m, T = inst.n, inst.m, inst.horizon
@@ -322,17 +383,17 @@ class BAPDisjunctive:
         z = {(i, j): prob.add_variable(f"z_{i}_{j}", cat="Binary")
              for i in range(n) for j in range(i + 1, n)}
         # Candidate start periods per vessel and berth, empty when a closure
-        # leaves no unblocked handling window.
+        # leaves no unblocked handling window or when the vessel is longer than the
+        # berth. A vessel occupies the whole berth, so it cannot berth where it
+        # does not fit; `Instance.validate`, `Schedule.check` and
+        # `metrics.sanity_check_schedule` all enforce that, and a model that omits
+        # it reports an optimum the package's own check rejects.
         starts = {(i, k): [t for t in range(inst.vessels[i].arrive, T - inst.vessels[i].handle + 1)
-                           if not any(inst.blocked(k, tt)
-                                      for tt in range(t, t + inst.vessels[i].handle))]
+                           if (inst.vessels[i].length <= inst.berths[k].length
+                               and not any(inst.blocked(k, tt)
+                                           for tt in range(t, t + inst.vessels[i].handle)))]
                   for i in range(n) for k in range(m)}
         self._starts = starts
-        for i in range(n):
-            if not any(starts[(i, k)] for k in range(m)):
-                raise RuntimeError(
-                    f"vessel {inst.vessels[i].name} has no unblocked handling "
-                    f"window on any berth")
 
         s = {(i, t): prob.add_variable(f"s_{i}_{t}", cat="Binary")
              for i in range(n) for t in range(inst.vessels[i].arrive, T + 1)}
@@ -410,6 +471,11 @@ class BAPDisjunctive:
         return prob
 
     def solve(self) -> Schedule:
+        # A vessel that can berth nowhere makes the instance infeasible before the
+        # solver runs, so report that as a schedule rather than raising.
+        stranded = stranded_vessels(self.inst, self._starts_for)
+        if stranded:
+            return infeasible_schedule(self.inst, stranded, "MILP")
         if self.problem is None:
             self.build()
         kwargs = {"msg": self.msg}

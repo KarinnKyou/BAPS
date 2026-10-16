@@ -86,11 +86,18 @@ def test_both_formulations_agree_with_closures_and_cranes(slack):
 
 
 def test_disjunctive_rejects_an_instance_with_no_unblocked_window():
-    """A vessel with every berth closed for its whole stay cannot be scheduled."""
+    """A vessel with every berth closed for its whole stay cannot be scheduled.
+
+    The instance is infeasible rather than ill-posed, so the model reports that as
+    an infeasible schedule: callers loop over instances and read `feasible`.
+    """
     inst = make_toy_instance("blocked", 3, 2, seed=5, horizon=12)
     inst.tidal_windows = {str(k): [(0, inst.horizon)] for k in range(inst.m)}
-    with pytest.raises(RuntimeError):
-        BAPDisjunctive(inst).build()
+    sch = BAPDisjunctive(inst).solve()
+    assert not sch.feasible
+    assert sch.violations
+    assert sch.extra.get("status") == "Infeasible"
+    assert BAPTimeIndexed(inst).solve().feasible is False
 
 
 def test_solution_respects_arrival_times(hard):
