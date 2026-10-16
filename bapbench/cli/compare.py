@@ -11,7 +11,7 @@ from pathlib import Path
 
 from ..heuristics.constructive import BASELINES, run_all_baselines
 from ..instances import Instance, make_hard_instance, make_toy_instance
-from ..metrics import gap_pct, objective_value
+from ..metrics import gap_pct
 from ..models.bap import BAPTimeIndexed
 
 # Fixed horizon for the ablation. At this slack the exact model still proves

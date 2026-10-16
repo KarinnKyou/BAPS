@@ -12,7 +12,7 @@ import random
 import time
 from dataclasses import dataclass, field
 
-from .instances import Instance, Vessel, Schedule
+from .instances import Instance, Schedule
 
 
 # Disruption events

@@ -211,7 +211,7 @@ def alns(inst: Instance, objective: str = "sum_C", *, iters: int = 120,
     n = inst.n
     q = max(1, int(round(q_frac * n)))
 
-    from ..heuristics.constructive import fcfs, lpt, greedy_earliest
+    from ..heuristics.constructive import fcfs, lpt
     cur = fcfs(inst, objective).extra.get("order", list(range(n)))[:]
     cur_val = ev(cur)
     best, best_val = cur[:], cur_val

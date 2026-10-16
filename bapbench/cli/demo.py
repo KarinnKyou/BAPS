@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from ..heuristics.constructive import run_all_baselines
-from ..instances import make_hard_instance, make_toy_instance
+from ..instances import make_hard_instance
 from ..metrics import draw_gantt, gap_pct
 from ..models.bap import BAPTimeIndexed
 from ..verification.exhaustive import verify_instance
