@@ -1,3 +1,0 @@
-﻿n_events,seed,dt,perfect_objective,rolling_objective,regret_pct,feasible,reoptimizations,violation,event_kinds
-2,20261014,8,277.0,277.0,0.0,True,7,,arrival_delay;handle_overrun
-4,20261014,8,283.0,289.0,2.12,True,8,,arrival_delay;arrival_delay;handle_overrun;tidal_shift

@@ -18,11 +18,14 @@ from ..models.bap import BAPTimeIndexed
 # optimality, so the only variable left is which constraints are switched on.
 ABLATION_HORIZON = 76
 
+# slack is stated explicitly for the constrained instance: the generator default of
+# 1.0 leaves no feasible schedule once closures and the crane limit apply together,
+# so every method including the exact model reports failure.
 DEFAULT_INSTANCES = [
     ("small_5x3", dict(n=5, m=3, seed=20261014, tight=False)),
     ("tight_6x3", dict(n=6, m=3, seed=11, tight=True)),
     ("tight_8x4", dict(n=8, m=4, seed=7, tight=True)),
-    ("hard_10x3", dict(n=10, m=3, seed=20261014, hard=True)),
+    ("hard_10x3", dict(n=10, m=3, seed=20261014, hard=True, slack=1.8)),
 ]
 
 
@@ -31,7 +34,21 @@ def build(spec: dict) -> Instance:
     n, m = spec.pop("n"), spec.pop("m")
     name = spec.pop("name")
     maker = make_hard_instance if hard else make_toy_instance
-    return maker(name, n, m, **spec)
+    inst = maker(name, n, m, **spec)
+    problems = inst.validate()
+    if problems:
+        raise ValueError(
+            f"{name} is infeasible by construction: " + "; ".join(problems) +
+            " (raise slack for constrained instances)")
+    # Instance.validate only inspects vessels one at a time, so it cannot see a
+    # joint crane-capacity shortfall. At these sizes the exact model can.
+    probe = BAPTimeIndexed(inst, time_limit=30.0).solve()
+    if not probe.feasible:
+        raise ValueError(
+            f"{name} has no feasible schedule (exact model: "
+            f"{'; '.join(probe.violations) or 'infeasible'}); "
+            f"raise slack for constrained instances")
+    return inst
 
 
 def solve_exact(inst: Instance, objective: str, time_limit: float,
