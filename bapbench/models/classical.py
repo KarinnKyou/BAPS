@@ -179,26 +179,32 @@ def _machine_load_lb(P: SimpleProblem) -> int:
 def single_machine_spt(prob: SimpleProblem) -> tuple[list[int], float]:
     """SPT: ascending p_j, optimal for 1| |sum C_j. Returns (order, sum C_j).
 
-    SPT stops being optimal with release dates: 1|r_j|sum C_j is NP-hard.
+    Release dates are honoured, so the returned value is the cost of a feasible
+    schedule. With every release date zero this is the proven optimum; once
+    release dates are present SPT is a heuristic only, since 1|r_j|sum C_j is
+    NP-hard.
     """
     order = sorted(range(prob.n), key=lambda j: (prob.jobs[j].proc, j))
     t, total = 0, 0.0
     for j in order:
-        t += prob.jobs[j].proc
+        t = max(t, prob.jobs[j].release) + prob.jobs[j].proc
         total += t
     return order, total
 
 
 def single_machine_wspt(prob: SimpleProblem) -> tuple[list[int], float]:
-    """WSPT: ascending p_j / w_j, optimal for 1| |sum w_j C_j with no release
-    dates. Returns (order, sum w_j C_j).
+    """WSPT: ascending p_j / w_j, optimal for 1| |sum w_j C_j. Returns (order, sum w_j C_j).
+
+    Release dates are honoured, so the returned value is the cost of a feasible
+    schedule. With every release date zero this is the proven optimum; with
+    release dates it is a heuristic.
     """
     from fractions import Fraction
     order = sorted(range(prob.n),
                    key=lambda j: (Fraction(prob.jobs[j].proc, prob.jobs[j].weight), j))
     t, total = 0, 0.0
     for j in order:
-        t += prob.jobs[j].proc
+        t = max(t, prob.jobs[j].release) + prob.jobs[j].proc
         total += prob.jobs[j].weight * t
     return order, total
 

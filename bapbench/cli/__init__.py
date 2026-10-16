@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 
+from . import classical as classical_cmd
 from . import compare as compare_cmd
 from . import demo as demo_cmd
 from . import dynamic as dynamic_cmd
@@ -15,6 +16,7 @@ COMMANDS = {
     "verify": (verify_cmd, "check the formulations against independent optima"),
     "compare": (compare_cmd, "compare the exact model with the baselines"),
     "heuristics": (heuristics_cmd, "run the metaheuristics, optionally across seeds"),
+    "classical": (classical_cmd, "classical scheduling against enumeration"),
     "dynamic": (dynamic_cmd, "disruptions and rolling-horizon experiments"),
 }
 

@@ -63,6 +63,7 @@ the trivial bound, and the known-optimum instance families reproduce.
 bapbench compare      # exact versus baselines, constraint ablation, slack and size scans
 bapbench heuristics   # metaheuristics across seeds; solver configurations
 bapbench dynamic      # disruption events and rolling-horizon regret
+bapbench classical    # classical scheduling models against independent enumeration
 ```
 
 Every command writes under `results/`, and `--out` redirects it. `bapbench
@@ -189,9 +190,10 @@ pip install -e ".[dev]"
 pytest
 ```
 
-29 tests covering the two formulations and their agreement on constrained
+42 tests covering the two formulations and their agreement on constrained
 instances, the solver-free enumerator, the known-optimum families, schedule
-checking, and the disruption and rolling-horizon behaviour.
+checking, the classical scheduling models against enumeration, and the
+disruption and rolling-horizon behaviour.
 
 ## License
 
