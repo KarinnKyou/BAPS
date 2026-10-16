@@ -81,15 +81,26 @@ class BAPTimeIndexed:
         v = inst.vessels[i]
         if self.lock and i in self.lock:
             raw = self.lock[i]
-            lb, lt = raw[0], raw[1]
+            # lock entry is (berth, start lower bound, fixed) -- the berth must
+            # be matched against k and the lower bound against the start period.
+            lock_berth, lock_lb = raw[0], raw[1]
             fixed = raw[2] if len(raw) > 2 else False
-            if lb != k:
+            if lock_berth != k:
                 return []
             ok = lambda t: all(                       # noqa: E731
                 not inst.blocked(k, tt) for tt in range(t, t + v.handle))
             if self.lock_start_free or not fixed:
-                return [t for t in self._starts(i) if t >= lt and ok(t)]
-            return [lt] if ok(lt) else []
+                return [t for t in self._starts(i) if t >= lock_lb and ok(t)]
+            pinned = [lock_lb] if ok(lock_lb) else []
+            if not pinned:
+                # The pinned instant was feasible on the planning view but a
+                # later tidal shift has blocked it. A commitment to a berth
+                # cannot outlast the berth's availability, so keep the berth and
+                # relax the start rather than declaring the instance infeasible;
+                # a start at or after the commitment still respects the fact that
+                # the vessel is already alongside.
+                return [t for t in self._starts(i) if t >= lock_lb and ok(t)]
+            return pinned
         out = []
         for t in self._starts(i):
             if all(not inst.blocked(k, tt) for tt in range(t, t + v.handle)):

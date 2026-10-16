@@ -140,6 +140,28 @@ class RollingResult:
     log: list[dict] = field(default_factory=list)
     # Lock set for the final rebuild: {vid: (berth, start_lower_bound, fixed)}
     final_locks: dict = field(default_factory=dict)
+    # Whether the final rebuild produced a schedule valid on the realised instance
+    feasible: bool = False
+
+
+def _ensure_horizon(view: Instance, locked: dict) -> Instance:
+    """Widen the planning horizon so a commitment cannot strand a vessel.
+
+    ``apply_events`` grows the horizon from the *predicted* arrivals, but the
+    rolling loop then overwrites them with the observed ones, and a commitment's
+    start lower bound can sit beyond the horizon as well. Either can leave a
+    vessel with no feasible start period, which the model reports by raising
+    rather than by returning an infeasible schedule.
+    """
+    need = max((v.arrive + v.handle for v in view.vessels), default=0)
+    for (a, b, _r) in view.crane_failures:
+        need = max(need, b)
+    for vid, spec in locked.items():
+        if len(spec) > 1 and isinstance(spec[1], int):
+            need = max(need, spec[1] + view.vessels[vid].handle)
+    if need > view.horizon:
+        view.horizon = need + 2
+    return view
 
 
 def rolling_horizon(planned: Instance, true_inst: Instance, events: list[Event],
@@ -165,7 +187,10 @@ def rolling_horizon(planned: Instance, true_inst: Instance, events: list[Event],
         for v in view.vessels:
             v.arrive = obs.get(v.vid, v.arrive)
 
-        # Berth first; the exact start follows once handling has begun.
+        # Berth first; the exact start is pinned only once handling has begun.
+        # Pinning uses the realised arrival, not the planning view's prediction:
+        # a vessel the view still expects to have arrived may in fact be late, so
+        # its start has not happened and must not be frozen.
         if prev is not None and prev.assign:
             for vid, (bid, st) in prev.assign.items():
                 real_arr = true_inst.vessels[vid].arrive
@@ -174,8 +199,12 @@ def rolling_horizon(planned: Instance, true_inst: Instance, events: list[Event],
                 lb = max(st, real_arr)
                 if vid not in locked and st <= now:
                     locked[vid] = (bid, lb, False)
-                if vid in locked and not locked[vid][2] and lb <= now:
+                if vid in locked and not locked[vid][2] and st < now and real_arr < now:
                     locked[vid] = (bid, lb, True)
+
+        # Commitments and observed delays can both push a vessel past the
+        # horizon the view was built with.
+        view = _ensure_horizon(view, locked)
 
         try:
             from .models.bap import BAPTimeIndexed
@@ -209,12 +238,14 @@ def rolling_horizon(planned: Instance, true_inst: Instance, events: list[Event],
     result.final_locks = final_locks
     try:
         from .models.bap import BAPTimeIndexed
-        final = BAPTimeIndexed(true_inst, time_limit=max(time_limit, 30.0),
+        realised = _ensure_horizon(true_inst, final_locks)
+        final = BAPTimeIndexed(realised, time_limit=max(time_limit, 30.0),
                                lock=final_locks).solve()
         if not final.feasible:
-            final = BAPTimeIndexed(true_inst, time_limit=max(time_limit, 30.0),
+            final = BAPTimeIndexed(realised, time_limit=max(time_limit, 30.0),
                                    lock=final_locks, lock_start_free=True).solve()
         result.schedule = final if final.feasible else prev
+        result.feasible = bool(final.feasible)
         result.log.append({"now": "final_rebuild",
                            "objective": result.schedule.objective
                            if result.schedule else None,
@@ -225,6 +256,7 @@ def rolling_horizon(planned: Instance, true_inst: Instance, events: list[Event],
         result.log.append({"now": "final_rebuild",
                            "error": f"{type(e).__name__}: {e}"})
         result.schedule = prev
+        result.feasible = False
 
     result.total_wall = time.perf_counter() - t0
     return result
