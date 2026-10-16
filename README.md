@@ -139,6 +139,29 @@ closures and the crane limit, it was solving a strictly easier problem and
 reporting optima below the true one. Both now enforce every constraint the model
 does; that is the only way agreement between them means anything.
 
+**A search that fills in start times greedily is not a search.** Choosing each
+vessel's earliest feasible start, in one order, misses feasible schedules even for
+a fixed berth assignment, and it reported "no feasible schedule" on instances the
+model solves. The enumerator now backtracks over each vessel's full candidate
+window. Two further defects surfaced while cross-checking it: occupancy was
+tracked in one array shared across berths, so a vessel on one berth blocked
+another, and the pruning bound used a sum where `C_max` needs a suffix maximum,
+which made the pruning unsound.
+
+**Partial information has to be modelled on the schedule, not the outcome.** The
+rolling horizon decided a delayed vessel was observable by testing its *realised*
+arrival against the current period. A vessel due at 6 but actually arriving at 15
+therefore still reported 6 until t=15, so the branch that falls back to the plan
+was unreachable for precisely the vessels it existed for. Which vessels are
+observable now follows from their scheduled arrival.
+
+**Checking the disjunctive formulation only on unrestricted instances hides its
+gaps.** `BAPDisjunctive` encodes berth non-overlap and quay capacity, but not
+berth closures or the crane limit, so on a constrained instance it returns a
+schedule that fails the independent feasibility check. It reports that honestly as
+`feasible=False`; it is not silently wrong. Use `BAPTimeIndexed` for instances
+with closures or a crane limit.
+
 ## Limitations
 
 - The exact models are practical only for small instances. The time-indexed
@@ -186,8 +209,13 @@ results/                    experiment output (not tracked)
 ## Tests
 
 ```
+pip install -e ".[dev]"
 pytest
 ```
+
+25 tests covering the two formulations, their agreement with the solver-free
+enumerator, the known-optimum families, schedule checking, and the disruption and
+rolling-horizon behaviour.
 
 ## License
 
