@@ -179,6 +179,9 @@ def iterated_local_search(inst: Instance, objective: str = "sum_C",
     best, best_val = _best_seed(inst, objective, ev)
 
     cur, cur_val = local_search(inst, best, ev, rng, move=random.Random(seed).choice(moves))
+    # The declared best must include the local optimum just computed, or a run that
+    # improves on its seed and then finds nothing better returns the seed value.
+    best, best_val = cur[:], cur_val
 
     for _ in range(iters):
         cand = cur[:]

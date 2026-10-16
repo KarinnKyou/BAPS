@@ -30,6 +30,7 @@ from itertools import permutations
 import pulp
 
 from ..instances import Instance, Schedule, Vessel, Berth
+from ..metrics import classify_status
 
 
 
@@ -138,17 +139,24 @@ def to_instance_view(P: SimpleProblem) -> Instance:
 def _to_schedule(inst_like, start: dict[int, int], machine_of: dict[int, int],
                  prob: SimpleProblem, solver: str, wall: float,
                  nvars: int, ncons: int, nbin: int,
-                 objective: str = "sum_C") -> Schedule:
+                 objective: str = "sum_C", check: bool = True) -> Schedule:
     """Wrap a classical solution as a Schedule to reuse the same metrics.
 
     The objective must be reported in the units the model minimised: summing the
     completion times gives a different number from their maximum, so reporting the
-    wrong one silently mislabels the result.
+    wrong one silently mislabels the result. It is computed from the assignment
+    rather than taken from the model, so the two cannot disagree.
+
+    `check=False` is for the shop models, whose assignment is a placeholder: one
+    machine per job cannot express a multi-operation route, so the times are placed
+    to encode the makespan and the assignment is not a checkable schedule.
     """
     assign = {j: (machine_of[j], start[j]) for j in range(prob.n)}
     sch = Schedule(assign=assign, solver=solver, wall_time=wall,
-                   extra={"vars": nvars, "cons": ncons, "binaries": nbin})
-    sch.check(inst_like)
+                   extra={"vars": nvars, "cons": ncons, "binaries": nbin,
+                          "assignment_is_a_schedule": check})
+    if check:
+        sch.check(inst_like)
     comp = sch.completion(inst_like)
     if objective == "sum_C":
         sch.objective = float(sum(comp.values()))
@@ -328,13 +336,14 @@ class ParallelMachineMILP:
         t0 = time.perf_counter()
         stats = self.problem.solve(pulp.HiGHS(**kwargs))
         wall = time.perf_counter() - t0
-        status = getattr(stats, "status", None)
+        info = classify_status(stats)
         nv, nc, nb = self.formulation()
-        if status != 1:
+        if not info["solved"]:
             return Schedule(assign={}, feasible=False, objective=None,
-                            violations=[f"no optimal solution status={status}"],
+                            violations=[f"no optimal solution, status "
+                                        f"{info['status']}"],
                             solver="PM-MILP", wall_time=wall,
-                            extra={"vars": nv, "cons": nc, "binaries": nb})
+                            extra={"vars": nv, "cons": nc, "binaries": nb, **info})
         start, mach_of = {}, {}
         for j in range(self.prob.n):
             hit = None
@@ -366,6 +375,7 @@ class FlowShopMILP:
     across machines.
     """
     prob: SimpleProblem
+    objective: str = "C_max"
     time_limit: float | None = None
     msg: bool = False
     instance_view: Instance | None = None
@@ -426,22 +436,29 @@ class FlowShopMILP:
         t0 = time.perf_counter()
         stats = self.problem.solve(pulp.HiGHS(**kwargs))
         wall = time.perf_counter() - t0
-        status = getattr(stats, "status", None)
+        info = classify_status(stats)
         nv, nc = self.problem.numVariables(), self.problem.numConstraints()
-        if status != 1:
+        if not info["solved"]:
             return Schedule(assign={}, feasible=False, objective=None,
-                            violations=[f"no optimal solution status={status}"],
+                            violations=[f"no optimal solution, status "
+                                        f"{info['status']}"],
                             solver="FS-MILP", wall_time=wall,
-                            extra={"vars": nv, "cons": nc})
-        # Recover the order from each job's start on the first machine:
-        # start_j = C[j][0] - p_j
-        start = {j: int(round(self.C[(j, 0)].value())) - self.prob.jobs[j].proc
+                            extra={"vars": nv, "cons": nc, **info})
+        # The Schedule adapter carries one machine and one start per job, which is
+        # enough for a parallel-machine schedule but cannot describe a shop: a job
+        # there occupies a different machine in each of its operations. The
+        # adapter is therefore given a placeholder placement that encodes the
+        # makespan -- every job on the last machine, started so that it completes
+        # when its last operation really ends -- and `_to_schedule` recomputes the
+        # objective from it, so `objective` and `assign` cannot disagree. Feasibility
+        # for a shop comes from `job_shop_optimum`, not from this adapter.
+        last = self.prob.m - 1
+        start = {j: int(round(self.C[(j, last)].value())) - self.prob.jobs[j].proc
                  for j in range(self.prob.n)}
-        mach_of = {j: 0 for j in range(self.prob.n)}
-        sch = _to_schedule(self.instance_view, start, mach_of, self.prob,
-                           "FS-MILP", wall, nv, nc, self.prob.n * self.prob.n)
-        sch.objective = float(round(self.problem.objective.value(), 6))
-        return sch
+        mach_of = {j: last for j in range(self.prob.n)}
+        return _to_schedule(self.instance_view, start, mach_of, self.prob,
+                            "FS-MILP", wall, nv, nc, self.prob.n * self.prob.n,
+                            objective=self.objective, check=False)
 
 
 
@@ -457,6 +474,7 @@ class JobShopMILP:
     """
     prob: SimpleProblem
     routes: dict[int, list[int]] = None       # j -> machine sequence
+    objective: str = "C_max"
     time_limit: float | None = None
     msg: bool = False
     instance_view: Instance | None = None
@@ -522,19 +540,24 @@ class JobShopMILP:
         t0 = time.perf_counter()
         stats = self.problem.solve(pulp.HiGHS(**kwargs))
         wall = time.perf_counter() - t0
-        status = getattr(stats, "status", None)
+        info = classify_status(stats)
         nv, nc = self.problem.numVariables(), self.problem.numConstraints()
-        if status != 1:
+        if not info["solved"]:
             return Schedule(assign={}, feasible=False, objective=None,
-                            violations=[f"no optimal solution status={status}"],
+                            violations=[f"no optimal solution, status "
+                                        f"{info['status']}"],
                             solver="JS-MILP", wall_time=wall,
-                            extra={"vars": nv, "cons": nc})
-        start = {j: int(round(self.s[(j, 0)].value())) for j in range(self.prob.n)}
-        mach_of = {j: self.routes[j][0] for j in range(self.prob.n)}
-        sch = _to_schedule(self.instance_view, start, mach_of, self.prob,
-                           "JS-MILP", wall, nv, nc, len(self.z))
-        sch.objective = float(round(self.problem.objective.value(), 6))
-        return sch
+                            extra={"vars": nv, "cons": nc, **info})
+        # As for the flow shop: a job is finished when its last operation ends, and
+        # the adapter carries that so `objective` and `assign` describe the same
+        # schedule.
+        last = len(self.routes[0]) - 1
+        start = {j: int(round(self.s[(j, last)].value()))
+                 for j in range(self.prob.n)}
+        mach_of = {j: self.routes[j][last] for j in range(self.prob.n)}
+        return _to_schedule(self.instance_view, start, mach_of, self.prob,
+                            "JS-MILP", wall, nv, nc, len(self.z),
+                            objective=self.objective, check=False)
 
 
 
@@ -578,7 +601,7 @@ def parallel_search_work(n: int, m: int, horizon: int,
 
     since the multinomial factor and the orderings cancel. Counting only ``m**n``
     assignments understates this badly and grows apart from it: at n=10, m=3 the
-    assignment count is 59,049 while the real enumeration is 9,239,040.
+    assignment count is 59,049 while the real enumeration is 239,500,800.
 
     The blocking test walks one period at a time on an unavailable machine, which
     multiplies each evaluated schedule by roughly ``1 + blocked_fraction``.

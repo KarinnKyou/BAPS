@@ -283,3 +283,18 @@ def test_run_heuristics_records_failures_instead_of_raising(hard):
     for name, sch in out.items():
         if not sch.feasible:
             assert sch.violations, f"{name} failed without a reason"
+
+
+def test_ils_never_reports_worse_than_something_it_computed(hard):
+    """The returned schedule is declared the best of the run, so its objective may
+    not exceed the value the run itself reached. Returning the seed instead of the
+    local optimum it improved on is the failure this guards."""
+    without_iterations = iterated_local_search(hard, "sum_C", iters=0, seed=3)
+    assert without_iterations.feasible, without_iterations.violations
+
+    for iters in (0, 5, 30):
+        sch = iterated_local_search(hard, "sum_C", iters=iters, seed=3)
+        assert sch.feasible, sch.violations
+        assert sch.objective <= without_iterations.objective + 1e-9, (
+            f"iters={iters} returned {sch.objective} but the run's own local "
+            f"optimum is {without_iterations.objective}")

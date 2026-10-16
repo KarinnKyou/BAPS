@@ -14,19 +14,7 @@ from typing import Callable
 import pulp
 
 from ..instances import Instance, Schedule
-
-# Solver statuses that mean "a solution may exist but optimality was not proved".
-# Treating these as infeasible discards a usable schedule and misleads the caller.
-LIMIT_STATUSES = frozenset({
-    -4,   # TimeLimit
-    -5,   # MemoryLimit
-    -6,   # NodeLimit
-    -7,   # GapLimit
-    -8,   # IterationLimit
-    -9,   # SolutionLimit
-    -10,  # Interrupted
-    -11,  # Stopped
-})
+from ..metrics import classify_status, LIMIT_STATUSES
 
 
 def safe_big_m(inst: Instance) -> int:
@@ -262,18 +250,18 @@ class BAPTimeIndexed:
         t0 = time.perf_counter()
         stats = self.problem.solve(pulp.HiGHS(**kwargs))
         wall = time.perf_counter() - t0
-        status = getattr(stats, "status", None)
-        status_str = str(getattr(stats, "status_str", None) or status)
+        info = classify_status(stats)
+        status_str = info["status"]
         inst = self.inst
 
         # A solver that hits a limit can still have a feasible solution in hand.
         # Reporting those as infeasible both discards a usable schedule and
         # misdiagnoses the instance, so classify before deciding.
-        solved = status == 1                       # Optimal: proved
-        limited = status in LIMIT_STATUSES         # feasible, optimality unproven
+        solved = info["solved"]
+        limited = info["limited"]
         # A stopped solver still leaves column values behind, and reading them
         # yields an assignment that is not feasible anywhere.
-        has_solution = getattr(stats, "has_solution", True)
+        has_solution = info["has_solution"]
 
         if self.relax:
             # The relaxation has no integer assignment to read; it exists to
@@ -494,16 +482,15 @@ class BAPDisjunctive:
         t0 = time.perf_counter()
         stats = self.problem.solve(pulp.HiGHS(**kwargs))
         wall = time.perf_counter() - t0
-        status = getattr(stats, "status", None)
-        status_str = str(getattr(stats, "status_str", None) or status)
+        info = classify_status(stats)
+        status_str = info["status"]
         inst = self.inst
-        solved = status == 1
-        limited = status in LIMIT_STATUSES
+        solved, limited = info["solved"], info["limited"]
         # A stopped solver still leaves column values behind, and reading them
         # yields an assignment that is not feasible anywhere. `has_solution` is
         # the solver's own statement that a solution exists, so gate on it rather
         # than trusting whatever the variables happen to hold.
-        has_solution = getattr(stats, "has_solution", True)
+        has_solution = info["has_solution"]
         if not solved and not limited or not has_solution:
             return Schedule(assign={}, objective=None, feasible=False,
                             violations=[f"solver returned {status_str}"

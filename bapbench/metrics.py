@@ -12,6 +12,44 @@ OBJECTIVES = {
 
 DEFAULT_OBJECTIVE = "sum_C"
 
+# Solver statuses that mean "a solution may exist but optimality was not proved".
+# Treating these as infeasible discards a usable schedule and misleads the caller,
+# so every model classifies a status the same way.
+LIMIT_STATUSES = frozenset({
+    -4,   # TimeLimit
+    -5,   # MemoryLimit
+    -6,   # NodeLimit
+    -7,   # GapLimit
+    -8,   # IterationLimit
+    -9,   # SolutionLimit
+    -10,  # Interrupted
+    -11,  # Stopped
+})
+
+# The status value PuLP reports for a model solved to optimality.
+OPTIMAL_STATUS = 1
+
+
+def classify_status(stats) -> dict:
+    """What a solver's statistics say, in the terms a caller needs.
+
+    `proved_optimal` is true only for an optimal status; `has_solution` reports
+    whether the solver left an assignment behind, which a stopped solver also does
+    even when the values are not feasible anywhere.
+    """
+    status = getattr(stats, "status", None)
+    status_str = str(getattr(stats, "status_str", None) or status)
+    solved = status == OPTIMAL_STATUS
+    limited = status in LIMIT_STATUSES
+    return {
+        "status": status_str,
+        "status_value": status,
+        "solved": solved,
+        "limited": limited,
+        "has_solution": bool(getattr(stats, "has_solution", True)),
+        "proved_optimal": solved,
+    }
+
 
 def objective_value(completion: dict[int, int],
                     objective: str = DEFAULT_OBJECTIVE) -> float:
