@@ -222,6 +222,7 @@ bapbench/
     comparison.py           the reproductions beside the package's baselines
   cli/                      the `bapbench` command
 tests/                      pytest suite
+experiments/                four lab reports with their script, data and figures
 results/                    experiment output (not tracked)
 ```
 
@@ -237,6 +238,19 @@ instances, the solver-free enumerator, the known-optimum families, schedule
 checking, the classical scheduling models against enumeration, the disruption and
 rolling-horizon behaviour, the experiment orchestration layer, and each
 reproduction against evidence it does not produce itself.
+
+## Experiments
+
+`experiments/` holds four lab reports — MILP/LP and the basic model, classical
+scheduling, heuristics and solvers, dynamics and rolling horizons — together with
+the script that produces every number in them, the raw CSV records and the
+figures:
+
+```
+python experiments/run_experiments.py
+```
+
+See `experiments/README.md` for the mapping between reports and data files.
 
 ## License
 
