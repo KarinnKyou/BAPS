@@ -20,7 +20,6 @@ a failure with its reason rather than dropped.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
 
 from ..heuristics.constructive import BASELINES
 from ..heuristics.metaheuristics import HEURISTICS
@@ -82,8 +81,14 @@ def _rows_for(inst: Instance, objective: str, methods: dict, time_limit: float,
         ok, value, problems = False, None, []
         if sch.assign and len(sch.assign) == inst.n:
             checked = sch.check(inst)
-            problems = list(checked.violations)
-            ok = checked.feasible
+            # Two independent re-checks, as the module promises: `Schedule.check`
+            # and `sanity_check_schedule` share no code with each other or with
+            # any of the methods, so a schedule only counts when both accept it.
+            # Calling only the first left the second documented but never run.
+            issues = sanity_check_schedule(inst, sch)
+            problems = list(checked.violations) + [
+                f"{issue.kind}: {issue.detail}" for issue in issues]
+            ok = checked.feasible and not issues
             if ok:
                 value = objective_value(sch.completion(inst), objective)
         else:
@@ -106,7 +111,8 @@ def compare_reproductions(inst: Instance, objective: str = "sum_C",
                           procedures: tuple[str, ...] = ("SIMPLE", "INDIVIDUAL",
                                                          "INTERACT"),
                           with_package_methods: bool = True,
-                          with_iris: bool = True) -> list[dict]:
+                          with_iris: bool = True,
+                          imai_max_iter: int = 200) -> list[dict]:
     """Every reproduced method and, optionally, the package's own, on one instance.
 
     The reference is the exact model's optimum when it proves one, because that is
@@ -126,7 +132,8 @@ def compare_reproductions(inst: Instance, objective: str = "sum_C",
     methods: dict = {}
     for procedure in procedures:
         methods[f"Imai2001[{procedure}]"] = (
-            lambda p=procedure: imai_schedule(inst, procedure=p))
+            lambda p=procedure: imai_schedule(inst, procedure=p,
+                                              max_iter=imai_max_iter))
     if with_iris:
         methods["Iris2017[ALNS]"] = (
             lambda: iris_schedule(inst, objective, seed=seed))

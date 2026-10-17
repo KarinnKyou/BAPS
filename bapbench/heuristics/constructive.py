@@ -39,7 +39,7 @@ def _earliest_feasible_start(inst: Instance, i: int, k: int, not_before: int) ->
 
 def _place_once(inst: Instance, order: list[int], rule: str) -> dict[int, tuple[int, int]] | None:
     """One greedy placement pass; returns None if a vessel cannot be placed."""
-    n, m = inst.n, inst.m
+    m = inst.m
     free = [0] * m
     crane_busy = [0] * inst.horizon
     assign: dict[int, tuple[int, int]] = {}
@@ -109,7 +109,6 @@ _PLACE_ATTEMPTS = ("earliest_start", "earliest_finish", "first_fit",
 # 20-vessel instance, longest-handling-first needs about 50 restart orders while
 # arrival order needs about 1000, so a uniform budget would either cost the first
 # heuristic 2.7 s or fail the second.
-PLACE_RESTARTS = 100
 PLACE_RESTARTS_BY_METHOD = {
     "FCFS": 600,
     "LPT": 100,

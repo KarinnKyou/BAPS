@@ -18,13 +18,10 @@ import pytest
 from bapbench.heuristics.constructive import (
     PLACE_RESTARTS_BY_METHOD,
     BASELINES,
-    fcfs,
     genetic_algorithm,
-    lpt,
     place_in_order,
     run_all_baselines,
     simulated_annealing,
-    spt,
 )
 from bapbench.heuristics.metaheuristics import (
     DESTROY,

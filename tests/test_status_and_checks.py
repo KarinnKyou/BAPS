@@ -113,7 +113,7 @@ def test_sanity_check_detects_a_late_start_shifted_early(toy):
     sch = BAPTimeIndexed(toy, time_limit=60.0).solve()
     broken = dict(sch.assign)
     vid = next(iter(broken))
-    bid, st = broken[vid]
+    bid, _st = broken[vid]
     broken[vid] = (bid, max(0, toy.vessels[vid].arrive - 1))
     kinds = {i.kind for i in sanity_check_schedule(toy, broken)}
     assert "release" in kinds

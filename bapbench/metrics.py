@@ -283,7 +283,7 @@ def berth_overlaps(inst, assign: dict[int, tuple[int, int]]) -> list[str]:
         by_berth.setdefault(bid, []).append((st, st + v.handle, vid))
     for bid, spans in by_berth.items():
         spans.sort()
-        for (s1, e1, v1), (s2, _e2, v2) in zip(spans, spans[1:]):
+        for (_s1, e1, v1), (s2, _e2, v2) in zip(spans, spans[1:]):
             if s2 < e1:
                 problems.append(
                     f"berth {inst.berths[bid].name}: {inst.vessels[v1].name} and "

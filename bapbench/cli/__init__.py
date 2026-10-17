@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import sys
 
+from . import bacap as bacap_cmd
 from . import classical as classical_cmd
 from . import compare as compare_cmd
 from . import demo as demo_cmd
 from . import dynamic as dynamic_cmd
 from . import heuristics as heuristics_cmd
+from . import reproduce as reproduce_cmd
 from . import verify as verify_cmd
 
 COMMANDS = {
@@ -18,6 +20,8 @@ COMMANDS = {
     "heuristics": (heuristics_cmd, "run the metaheuristics, optionally across seeds"),
     "classical": (classical_cmd, "classical scheduling against enumeration"),
     "dynamic": (dynamic_cmd, "disruptions and rolling-horizon experiments"),
+    "reproduce": (reproduce_cmd, "run the reproduced published methods"),
+    "bacap": (bacap_cmd, "the paper's own BACAP model: quay position and QC plans"),
 }
 
 

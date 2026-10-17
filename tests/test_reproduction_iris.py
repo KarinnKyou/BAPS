@@ -10,7 +10,6 @@ optimum this package proves independently.
 
 from __future__ import annotations
 
-import math
 import random
 
 import pytest
@@ -40,8 +39,6 @@ from bapbench.reproduction.iris2017 import (
     repair_smarter,
     run_alns,
 )
-
-OPERATORS = list(DESTROY_OPERATORS) + list(INSERTION_OPERATORS)
 
 
 def _short_config(iters: int = 400, **changes) -> ALNSConfig:
@@ -114,7 +111,6 @@ def test_each_destroy_operator_returns_a_usable_destroy_list(toy, name):
 
 @pytest.mark.parametrize("name", list(DESTROY_OPERATORS))
 def test_removal_preserves_the_assignment_of_every_other_vessel(toy, name):
-    candidates = generate_candidates(toy, "sum_C")
     baseline = ALNSSolution.from_assign(toy, dict(fcfs(toy, "sum_C").assign))
     rng = random.Random(7)
     destroyed = DESTROY_OPERATORS[name](_DestroyContext(toy, baseline, rng,

@@ -156,7 +156,7 @@ def _ensure_horizon(view: Instance, locked: dict) -> Instance:
     rather than by returning an infeasible schedule.
     """
     need = max((v.arrive + v.handle for v in view.vessels), default=0)
-    for (a, b, _r) in view.crane_failures:
+    for (_a, b, _r) in view.crane_failures:
         need = max(need, b)
     for vid, spec in locked.items():
         if len(spec) > 1 and isinstance(spec[1], int):
@@ -269,7 +269,7 @@ def rolling_horizon(planned: Instance, true_inst: Instance, events: list[Event],
                     attempt = BAPTimeIndexed(realised, time_limit=budget,
                                              lock=trial, lock_start_free=True).solve()
                 if attempt.feasible:
-                    final, kept, dropped = attempt, trial, drop
+                    final, kept = attempt, trial
                     result.log.append({"now": "final_rebuild",
                                        "released_locks": drop})
                     break

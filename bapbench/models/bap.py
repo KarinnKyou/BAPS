@@ -14,7 +14,7 @@ from typing import Callable
 import pulp
 
 from ..instances import Instance, Schedule
-from ..metrics import classify_status, LIMIT_STATUSES
+from ..metrics import LIMIT_STATUSES, classify_status  # noqa: F401  (LIMIT_STATUSES is re-exported)
 
 
 def safe_big_m(inst: Instance) -> int:
@@ -282,7 +282,7 @@ class BAPTimeIndexed:
                                    "vars": self.problem.numVariables(),
                                    "cons": self.problem.numConstraints()})
 
-        if not solved and not limited or not has_solution:
+        if (not solved and not limited) or not has_solution:
             return Schedule(assign={}, objective=None, feasible=False,
                             violations=[f"solver returned {status_str}"
                                         + ("" if has_solution else " with no solution")],
@@ -504,7 +504,7 @@ class BAPDisjunctive:
         # the solver's own statement that a solution exists, so gate on it rather
         # than trusting whatever the variables happen to hold.
         has_solution = info["has_solution"]
-        if not solved and not limited or not has_solution:
+        if (not solved and not limited) or not has_solution:
             return Schedule(assign={}, objective=None, feasible=False,
                             violations=[f"solver returned {status_str}"
                                         + ("" if has_solution else " with no solution")],

@@ -90,9 +90,21 @@ def run_seeds(inst, objective: str, n_seeds: int, time_limit: float,
     names = _method_names()
     buckets: dict[str, list[tuple]] = {n: [] for n in names}
     reasons: dict[str, list[str]] = {n: [] for n in names}
-    for seed in range(n_seeds):
+    # The MILP was solved above to obtain the reference and is deterministic, so
+    # solving it once per seed repeated identical work `n_seeds` times (once per
+    # seed plus the reference solve) and could only differ across seeds if the
+    # solver were nondeterministic -- which the determinism self-check would then
+    # report against the wrong method. Its row reuses that one run.
+    milp_ok = bool(exact.feasible and exact.objective is not None)
+    milp_entry = (exact.objective if milp_ok else None, exact.wall_time, milp_ok)
+    for _seed in range(n_seeds):
+        buckets["MILP"].append(milp_entry)
+        if not milp_ok:
+            reasons["MILP"].append("; ".join(exact.violations[:1]) or "infeasible")
         for name in names:
-            sch, wall, _n, reason = _run_one(inst, name, objective, seed, time_limit)
+            if name == "MILP":
+                continue
+            sch, wall, _n, reason = _run_one(inst, name, objective, _seed, time_limit)
             if sch is None:
                 buckets[name].append((None, wall, False))
                 reasons[name].append(reason or "placement failed")

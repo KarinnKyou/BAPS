@@ -136,7 +136,6 @@ def _best_seed(inst: Instance, objective: str, ev: Evaluator
 
     candidates: list[list[int]] = []
     for fn in (lpt, fcfs, spt):
-        name = fn.__name__.upper()
         try:
             sch = fn(inst, objective)
         except RuntimeError:
@@ -331,8 +330,8 @@ def _ls_entry(inst: Instance, objective: str, seed: int) -> Schedule:
     t0 = time.perf_counter()
     rng = random.Random(seed)
     ev = Evaluator(inst, objective)
-    best, best_val = _best_seed(inst, objective, ev)
-    best, best_val = local_search(inst, best, ev, rng, move="relocate")
+    seed_order, _seed_value = _best_seed(inst, objective, ev)
+    best, _best_value = local_search(inst, seed_order, ev, rng, move="relocate")
     return _finish(inst, best, "LS", t0, objective, ev)
 
 

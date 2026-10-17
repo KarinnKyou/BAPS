@@ -403,7 +403,7 @@ class FlowShopMILP:
 
     def build(self):
         P = self.prob
-        n, m, T = P.n, P.m, P.horizon
+        n, m = P.n, P.m
         _require_no_release_dates(P, "FlowShopMILP")
         model = pulp.LpProblem(f"FS_{P.name}", pulp.LpMinimize)
         UB = makespan_upper_bound(P)
@@ -488,10 +488,6 @@ class FlowShopMILP:
         # when its last operation really ends -- and `_to_schedule` recomputes the
         # objective from it, so `objective` and `assign` cannot disagree. Feasibility
         # for a shop comes from `job_shop_optimum`, not from this adapter.
-        last = self.prob.m - 1
-        start = {j: completions[j] - self.prob.jobs[j].proc
-                 for j in range(self.prob.n)}
-        mach_of = {j: last for j in range(self.prob.n)}
         return _to_schedule(self.instance_view, start, mach_of, self.prob,
                             "FS-MILP", wall, nv, nc, self.prob.n * self.prob.n,
                             objective=self.objective, check=False, status=info)
@@ -519,7 +515,7 @@ class JobShopMILP:
 
     def build(self):
         P = self.prob
-        n, m, T = P.n, P.m, P.horizon
+        n, m = P.n, P.m
         _require_no_release_dates(P, "JobShopMILP")
         if self.routes is None:
             # Default route: 0..m-1 for every job

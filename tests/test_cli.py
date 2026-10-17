@@ -10,6 +10,7 @@ when a method produces nothing -- rather than for particular values.
 from __future__ import annotations
 
 import csv
+import json
 
 import pytest
 
@@ -166,8 +167,8 @@ def test_compare_keeps_an_infeasible_baseline_row_out_of_the_gap_column(toy):
             assert r["note"]
 
 
-def test_slack_scan_names_a_reference_on_every_row(tmp_path):
-    rows = slack_scan(tmp_path, "sum_C", 20.0, slacks=[2.0, 1.8])
+def test_slack_scan_names_a_reference_on_every_row():
+    rows = slack_scan("sum_C", 20.0, slacks=[2.0, 1.8])
     assert rows
     for r in rows:
         assert r["reference_kind"] in ("exact_proved", "lp_bound",
@@ -203,6 +204,15 @@ def test_rolling_reports_the_events_it_actually_applied(hard):
     r = run_rolling(hard, 4, 20261014, 8, 20.0)
     kinds = [k for k in r["event_kinds"].split(";") if k]
     assert len(kinds) == r["n_events"] == 4
+
+
+def test_rolling_counts_only_the_events_it_applied(hard):
+    """The generator draws a fixed number per kind, so a request for three events
+    yields two. The row must count what was applied, not what was asked for."""
+    r = run_rolling(hard, 3, 20261014, 8, 20.0)
+    kinds = [k for k in r["event_kinds"].split(";") if k]
+    assert r["requested_events"] == 3
+    assert r["n_events"] == len(kinds) <= r["requested_events"]
 
 
 def test_rolling_reoptimises_roughly_once_per_decision_point(hard):
@@ -269,7 +279,7 @@ def test_reference_for_never_uses_an_unproved_value(toy):
 
 
 def test_reference_for_ignores_a_proved_flag_without_a_value(toy):
-    value, kind = reference_for(toy, "sum_C", None, True)
+    _value, kind = reference_for(toy, "sum_C", None, True)
     assert kind != "exact_proved"
 
 
@@ -292,3 +302,60 @@ def test_the_classical_groups_agree_with_their_independent_path(tmp_path):
         assert r["spt_matches_brute"] is True
     for r in parallel_machines([(4, 2), (5, 2)], tmp_path):
         assert r["agree"] is True
+
+
+# --- the reproduce command ------------------------------------------------------
+
+def test_the_reproduce_command_writes_its_csv(tmp_path):
+    """The comparison layer has a command, so the reproductions are reachable
+    without importing the package."""
+    from bapbench.cli import reproduce
+
+    code = reproduce.main(["--instances", "4", "--berths", "2",
+                           "--max-iter", "15", "--time-limit", "20",
+                           "--no-package-methods", "--no-iris",
+                           "--out", str(tmp_path)])
+    assert code == 0
+    with (tmp_path / "reproduce.csv").open(encoding="utf-8-sig") as f:
+        rows = list(csv.DictReader(f))
+    methods = {r["method"] for r in rows}
+    assert {"MILP", "Imai2001[SIMPLE]", "Imai2001[INDIVIDUAL]",
+            "Imai2001[INTERACT]"} <= methods
+    assert all(r["reference_kind"] == "exact_proved" for r in rows)
+    assert all(r["gap_pct"] != "" for r in rows if r["feasible"] == "True")
+
+
+# --- the bacap command ----------------------------------------------------------
+
+def test_the_bacap_command_writes_assignments_plan_and_summary(tmp_path):
+    from bapbench.cli import bacap as bacap_cmd
+
+    code = bacap_cmd.main(["--instances", "3", "--quay", "40", "--cranes", "6",
+                           "--horizon", "80", "--iterations", "20",
+                           "--out", str(tmp_path)])
+    assert code == 0
+
+    with (tmp_path / "assignments.csv").open(encoding="utf-8-sig") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 3
+    assert {"vessel", "berth", "start", "q_hat", "f1", "f2"} <= set(rows[0])
+
+    with (tmp_path / "qc_plan.csv").open(encoding="utf-8-sig") as f:
+        plan = list(csv.DictReader(f))
+    assert plan and {"vessel", "period", "cranes"} <= set(plan[0])
+
+    summary = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
+    assert summary["feasible"] is True
+    assert summary["violations"] == []
+    assert summary["unassigned"] == []
+    assert "reconstruction" in summary["instance"]["instance_kind"]
+
+
+def test_the_bacap_command_rejects_a_quay_too_short_for_the_fleet(tmp_path):
+    """A vessel is at least 8 sections long, so a 5-section quay cannot hold one.
+    The command must say why instead of raising."""
+    from bapbench.cli import bacap as bacap_cmd
+
+    code = bacap_cmd.main(["--instances", "2", "--quay", "5",
+                           "--out", str(tmp_path)])
+    assert code == 2

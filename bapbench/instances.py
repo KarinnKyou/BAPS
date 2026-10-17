@@ -470,7 +470,7 @@ class Schedule:
             spans = sorted((st, st + cmap[vid].handle, vid)
                            for vid, (bid, st) in self.assign.items()
                            if bid == b.bid and cmap[vid].handle > 0)
-            for (s1, e1, v1), (s2, _e2, v2) in zip(spans, spans[1:]):
+            for (_s1, e1, v1), (s2, _e2, v2) in zip(spans, spans[1:]):
                 if s2 < e1:
                     viol.append(
                         f"berth {b.name}: {cmap[v1].name} and {cmap[v2].name} "

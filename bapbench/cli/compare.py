@@ -30,12 +30,23 @@ DEFAULT_INSTANCES = [
 ]
 
 
-def build(spec: dict) -> Instance:
-    hard = spec.pop("hard", False)
-    n, m = spec.pop("n"), spec.pop("m")
-    name = spec.pop("name")
+def make_instance(spec: dict) -> Instance:
+    """Build the instance a spec describes, without validating or solving it.
+
+    The spec is copied first: `build` used to pop keys off the dict it was handed,
+    so the caller's spec (and anything sharing it) was consumed by the call.
+    """
+    remaining = dict(spec)
+    hard = remaining.pop("hard", False)
+    n, m = remaining.pop("n"), remaining.pop("m")
+    name = remaining.pop("name")
     maker = make_hard_instance if hard else make_toy_instance
-    inst = maker(name, n, m, **spec)
+    return maker(name, n, m, **remaining)
+
+
+def build(spec: dict) -> Instance:
+    inst = make_instance(spec)
+    name = inst.name
     problems = inst.validate()
     if problems:
         raise ValueError(
@@ -127,8 +138,14 @@ def compare(inst: Instance, objective: str, time_limit: float) -> list[dict]:
     return rows
 
 
-def ablation(instances_dir: Path, out_dir: Path, objective: str,
-             time_limit: float) -> list[dict]:
+def ablation(objective: str, time_limit: float) -> list[dict]:
+    """Exact optimum versus the best baseline, with the constraints switched on one
+    at a time, at a fixed horizon where optimality is still proved.
+
+    The two directory arguments the caller used to pass were never read: the CSV is
+    written by `main`, so taking them here only implied the function read instances
+    from disk and wrote its own output.
+    """
     configs = [
         ("no_constraints", dict(tidal=False, crane_limit=None)),
         ("tidal_only", dict(tidal=True, crane_limit=None)),
@@ -157,8 +174,14 @@ def ablation(instances_dir: Path, out_dir: Path, objective: str,
     return rows
 
 
-def slack_scan(out_dir: Path, objective: str, time_limit: float,
+def slack_scan(objective: str, time_limit: float,
                slacks: list[float]) -> list[dict]:
+    """Exact optimum versus the best baseline as the horizon tightens.
+
+    Where optimality is not proved the gap is measured against a named lower bound
+    and the row says which; an infeasible horizon is reported as a fact about the
+    instance rather than as a solver timeout.
+    """
     rows: list[dict] = []
     for slack in slacks:
         inst = make_hard_instance(f"slack_{slack}", 10, 3, seed=20261014, slack=slack)
@@ -205,8 +228,14 @@ def slack_scan(out_dir: Path, objective: str, time_limit: float,
     return rows
 
 
-def scale_scan(out_dir: Path, objective: str, time_limit: float,
+def scale_scan(objective: str, time_limit: float,
                sizes: list[int], n_berths: int = 3) -> list[dict]:
+    """Exact optimum versus the best baseline as the vessel count grows.
+
+    `proved` says whether the exact value is an optimum or a time-limited
+    incumbent; `gap_pct` is present only for an optimum, since a gap against an
+    incumbent would flatter the heuristic.
+    """
     rows: list[dict] = []
     for n in sizes:
         inst = make_toy_instance(f"scale_{n}x{n_berths}", n, n_berths,
@@ -258,29 +287,30 @@ def main(argv: list[str] | None = None) -> int:
 
     if "ablation" not in args.skip:
         print(f"Constraint ablation at fixed horizon {ABLATION_HORIZON}")
-        rows = ablation(out, out, args.objective, args.time_limit)
+        rows = ablation(args.objective, args.time_limit)
         _write_csv(out / "ablation.csv", rows)
         _print_table(rows, ["config", "exact", "best_heuristic", "gap_pct"])
         print(f"wrote {out / 'ablation.csv'}\n")
 
     if "slack" not in args.skip:
         print("Slack scan")
-        rows = slack_scan(out, args.objective, args.time_limit, args.slacks)
+        rows = slack_scan(args.objective, args.time_limit, args.slacks)
         _write_csv(out / "slack.csv", rows)
         _print_table(rows, ["slack", "horizon", "exact", "best_heuristic", "gap_pct"])
         print(f"wrote {out / 'slack.csv'}\n")
 
     if "scale" not in args.skip:
         print("Size scan")
-        rows = scale_scan(out, args.objective, args.time_limit, args.sizes)
+        rows = scale_scan(args.objective, args.time_limit, args.sizes)
         _write_csv(out / "scaling.csv", rows)
         _print_table(rows, ["n", "m", "exact_obj", "proved", "best_heur", "gap_pct"])
         print(f"wrote {out / 'scaling.csv'}\n")
 
     # The time unit of every period in this run, taken from the instances rather
     # than assumed, so the summary cannot misstate it for an instance built with
-    # a different `dt`.
-    dt_hours = build(dict(DEFAULT_INSTANCES[0][1], name="dt_probe")).dt
+    # a different `dt`. Building it is enough: a probe solve here re-ran a full
+    # exact model only to read a constant.
+    dt_hours = make_instance(dict(DEFAULT_INSTANCES[0][1], name="dt_probe")).dt
 
     (out / "summary.json").write_text(json.dumps({
         "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),

@@ -107,7 +107,6 @@ def case_single_machine() -> dict:
 def case_parallel_balanced(m: int = 3, k: int = 4) -> dict:
     """m machines with m*k unit jobs, so the bound k is attained by an even split."""
     n = m * k
-    procs = [1] * n
     routes = [[j % m] for j in range(n)]
     proc = [[1] for _ in range(n)]
     r = solve_shop(routes, proc, f"parallel_balanced_{m}x{k}")

@@ -44,25 +44,23 @@ being silently resolved:
    scheduled.  ``min_{k in J(K)} p_k`` is undefined for the empty schedule, so
    the predicate does not fire at the root; the source gives no explanation of
    that term beyond a reference to Chu (1995).
-3. **Property 6, which is corrected rather than transcribed.**  Printed as
+3. **Property 6, which is not applied.**  Printed as
    ``E_i(phi_m) <= E_j(phi_m)`` and ``(p_i - p_j) <= [E_i(phi_m) - E_j(phi_m)] *
    [U_m(K) - 1]`` it is not a dominance rule: it prunes O(K, i) although every
    optimal schedule goes through K + i.  The counterexample is small and is
    asserted in ``tests/test_reproduction_yalaoui.py`` -- six jobs on two machines
    (``generate_instance(6, 2, 0.5, 1)``), where the two optimal schedules are
    mirror images, each node of each path is pruned by the printed condition, and
-   the branch and bound returns 536 instead of 534.  The predicate implemented
-   here reads the two jobs in the other order,
-
-       E_j(phi_m) <= E_i(phi_m)
-       and (p_j - p_i) <= [E_j(phi_m) - E_i(phi_m)] * [U_m(K) - 1],
-
-   which is what the exchange argument of the proof establishes: swapping i and j
-   in a completion of K + i puts j in i's slot (nothing is delayed, since
-   E_j(phi_m) <= E_i(phi_m)) and i in j's slot, where it finishes no later because
-   ``p_j <= p_i`` implies ``E_j(t) <= E_i(t)`` for every t.  The proof's further
-   claim that the hypotheses imply ``R_i(phi_m) >= R_j(phi_m)`` does not follow
-   from the printed pair either.
+   the branch and bound returns 536 instead of 534.  The paper's own proof gives
+   the reason it cannot be sound as printed: it uses ``R_i(phi_m) >=
+   R_j(phi_m)``, which the two stated hypotheses do not imply.  The printed form,
+   its transposition, the printed form with that release condition added, with
+   the cross-machine ``U(K)`` in place of ``U_m(K)``, with ``U_m(K) >= 1``
+   required, and with the release condition alone were each tried against the
+   enumeration and each loses the optimum on some instance, so no form of the
+   rule is applied: ``property6_dominated`` always returns False and the search
+   decides without it.  It stays in the module, and in ``PROPERTY_NAMES``, so the
+   property that could not be reproduced is visible rather than silently missing.
 4. **D_i(K).**  The notation list defines D_i(K) as the completion time of the
    job immediately preceding i on its machine, and 0 if i is first.  Properties
    2, 4 and 5 use D_j exactly in that sense, so ``E_j(D_j) = C_j(K)``.
@@ -703,7 +701,6 @@ def solve_parallel_bnb(problem: SimpleProblem, *,
         enabled = set()
 
     releases = tuple(job.release for job in problem.jobs)
-    procs = tuple(job.proc for job in problem.jobs)
     n = len(releases)
 
     best = initial_upper_bound(problem)

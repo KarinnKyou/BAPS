@@ -35,8 +35,9 @@ python -m pip install setuptools
 pip install -e .
 ```
 
-PuLP is the modelling layer. Only the HiGHS backend is required; no commercial
-solver is needed.
+PuLP is the modelling layer and `highspy` supplies the HiGHS backend it calls;
+both are dependencies, so no commercial solver is needed. matplotlib is required
+only to draw the Gantt chart and is a dependency for that reason.
 
 The package also runs directly from the project root without installation, using
 `python -m bapbench.cli`.
@@ -64,9 +65,13 @@ bapbench compare      # exact versus baselines, constraint ablation, slack and s
 bapbench heuristics   # metaheuristics across seeds; solver configurations
 bapbench dynamic      # disruption events and rolling-horizon regret
 bapbench classical    # classical scheduling models against independent enumeration
+bapbench reproduce    # reproduced published methods beside the package's own
+bapbench bacap        # the paper's own BACAP model, with QC plans, on a reconstruction
 ```
 
-Every command writes under `results/`, and `--out` redirects it. `bapbench
+Every experiment command (`demo`, `compare`, `heuristics`, `classical`,
+`dynamic`, `reproduce`, `bacap`) writes under `results/`, and `--out` redirects it.
+`verify` is the exception: it is a pass/fail suite and writes nothing. `bapbench
 <command> --help` lists the flags.
 
 ## What is in the box
@@ -82,14 +87,38 @@ for `sum_i C_i` and `C_max`. `bapbench/models/classical.py` holds the classical
 scheduling models they relate to: single machine, parallel machine, permutation
 flow shop, job shop.
 
+**Bounds** (`bapbench/bounds.py`) — a trivial arrival-side bound and the LP
+relaxation of the time-indexed formulation. Where no optimum is proved, a gap is
+measured against one of these and the row says which, rather than against an
+unproved incumbent.
+
+**Reproductions** (`bapbench/reproduction/`) — three published solution methods
+re-implemented on the same `Instance`: the Imai, Nishimura & Papadimitriou (2001)
+Lagrangian heuristic for the DBAP, the Iris, Pacino & Ropke (2017) ALNS for the
+integrated berth-and-crane problem, and the Yalaoui & Chu (2006) branch and bound
+for `P_m | r_j | sum C_j`. `comparison.py` runs them beside the package's own
+baselines, scoring every row from the assignment alone and re-checking it twice.
+`bapbench reproduce` drives that comparison from the command line.
+
+`reproduction/bacap.py` is the exception that carries its own model: the paper's
+problem needs a continuous berthing position, a per-vessel crane range and a
+per-period quay-crane plan, none of which `Instance` expresses. It implements
+objective (1), Appendix A's `q_hat, f1, f2` pattern, the per-period plan and the
+ALNS on that model, and generates instances from the published distributions. The
+30 original Meisel & Bierwirth (2009) instances are not public, so a generated
+instance is labelled a literature reconstruction and its values are not the
+paper's table values. `bapbench bacap` runs it from the command line and writes
+the assignments, the QC plan and a summary.
+
 **Solvers** (`bapbench/heuristics/`) — FCFS, LPT, SPT, greedy, simulated
 annealing and a genetic algorithm, plus local search, iterated local search and
 ALNS. Every method searches over a permutation of vessels and shares one
 placement routine, so differences come from the priority rule or the search
 rather than from the decoding.
 
-**Verification** (`bapbench/verification/`) — the solver-free enumerator and the
-known-optimum instance families.
+**Verification** (`bapbench/verification/`) — the solver-free enumerator, the
+known-optimum instance families, and a solver-free exact search used as a
+second reference for the job shop.
 
 **Dynamics** (`bapbench/dynamics.py`) — four disruption kinds and a rolling
 horizon that commits to decisions in tiers: a berth can be committed, since a
@@ -160,6 +189,11 @@ arrival, not their realised one.
 - No standard published benchmark set is bundled. The provable-bound families are
   used instead of transcribed tables, which are easy to get wrong. Supplying
   authoritative benchmark files would be a genuine improvement.
+- The BACAP instances of `reproduction/bacap.py` are reconstructions from the
+  published distributions, not the 30 original Meisel & Bierwirth (2009)
+  instances, which are not public. No value computed on them is a reproduction of
+  the paper's tables. The per-period QC plan and the smallest handling time per
+  base crane count are readings of the paper, documented in that module.
 
 ## Layout
 
@@ -167,6 +201,7 @@ arrival, not their realised one.
 bapbench/
   instances.py              instance model, generators, schedule checking
   metrics.py                objective conventions, gap, Gantt charts
+  bounds.py                 trivial and LP lower bounds used as gap references
   dynamics.py               disruption events, tiered-commitment rolling horizon
   models/
     bap.py                  time-indexed and disjunctive MILP formulations
@@ -178,6 +213,13 @@ bapbench/
   verification/
     exhaustive.py           solver-free enumeration
     benchmarks.py           instance families with provable optima
+    jobshop.py              solver-free exact branch and bound (active schedules)
+  reproduction/
+    imai2001.py             Lagrangian heuristic for the DBAP
+    iris2017.py             ALNS for the integrated berth-and-crane problem
+    yalaoui2006.py          branch and bound for P_m | r_j | sum C_j
+    bacap.py                the paper's own model: quay position, QC plans, objective (1)
+    comparison.py           the reproductions beside the package's baselines
   cli/                      the `bapbench` command
 tests/                      pytest suite
 results/                    experiment output (not tracked)

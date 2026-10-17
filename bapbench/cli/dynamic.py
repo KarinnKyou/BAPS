@@ -85,6 +85,9 @@ def run_rolling(planned, n_events: int, seed: int, dt: int, time_limit: float) -
     events = make_events(planned, rng, n_arrival=max(1, n_events // 2),
                          n_overrun=max(1, n_events // 3),
                          tidal_shift=(n_events >= 4), crane_loss=(n_events >= 4))
+    # `make_events` draws a fixed number per kind, which need not reach the count
+    # asked for -- `n_events=3` produces two. Report how many were applied, so the
+    # row's event count and its event kinds describe the same run.
     events = events[:n_events]
     realised = apply_events(planned, events)
 
@@ -101,7 +104,8 @@ def run_rolling(planned, n_events: int, seed: int, dt: int, time_limit: float) -
     if ok and rolling_obj is not None and perfect_proved:
         regret = gap_pct(rolling_obj, perfect.objective)
     return {
-        "n_events": n_events, "seed": seed, "dt": dt,
+        "n_events": len(events), "requested_events": n_events,
+        "seed": seed, "dt": dt,
         "perfect_objective": perfect.objective if perfect_proved else None,
         "perfect_proved": perfect_proved,
         "rolling_objective": rolling_obj if ok else None,
@@ -175,8 +179,8 @@ def cmd_multiseed(args) -> int:
 
 
 def cmd_dt(args) -> int:
-    planned, _ = _base(args)
-    print(f"undisrupted optimum {BAPTimeIndexed(planned, time_limit=args.time_limit).solve().objective}")
+    planned, base = _base(args)
+    print(f"undisrupted optimum {base.objective}")
     print(f"{args.seeds} seeds per window\n")
     rows = []
     print(f"  {'dt':>4} {'feasible':>10} {'regret mean':>12} {'sd':>7} {'replans':>9}")
