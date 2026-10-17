@@ -1,0 +1,6 @@
+﻿case,n_events,objective,delta_pct,feasible,horizon
+undisrupted,0,309.0,0.0,True,76
+arrival_delay,3,368.0,19.094,True,76
+handle_overrun,2,315.0,1.942,True,76
+tidal_shift,1,317.0,2.589,True,76
+crane_loss,1,314.0,1.618,True,76

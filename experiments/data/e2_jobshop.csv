@@ -1,0 +1,5 @@
+﻿case,milp,branch_bound,agree,nodes,bb_wall_s
+4x3,30.0,30.0,True,421,0.0008
+5x3,42.0,42.0,True,2460,0.005
+4x4,37.0,37.0,True,1529,0.0029
+counterexample,,20.0,True,26,0.0

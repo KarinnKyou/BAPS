@@ -1,0 +1,4 @@
+﻿n,spt,brute,spt_gap_pct,spt_optimal,wspt_wC,brute_wC,wspt_gap_pct,wspt_optimal
+4,40.0,40.0,0.0,True,112.0,89.0,25.843,False
+5,77.0,72.0,6.944,False,159.0,119.0,33.613,False
+6,115.0,80.0,43.75,False,191.0,159.0,20.126,False

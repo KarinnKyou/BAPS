@@ -1,0 +1,6 @@
+﻿config,note,objective,feasible,wall_time_s,proved_optimal,solver_status,gap_pct,vars,cons,error,exact
+default,solver defaults,861.0,True,0.4297,True,Optimal,0.0,2566,428,,861.0
+tightgap,gapRel = 0,861.0,True,0.4377,True,Optimal,0.0,2566,428,,861.0
+shorttime,"2 s limit, as an online budget",861.0,True,0.441,True,Optimal,0.0,2566,428,,861.0
+nopresolve,presolve disabled,861.0,True,0.8802,True,Optimal,0.0,2566,428,,861.0
+tight+short,gapRel = 0 with a 2 s limit,861.0,True,0.4374,True,Optimal,0.0,2566,428,,861.0

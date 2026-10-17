@@ -1,0 +1,4 @@
+﻿n,ti_objective,dj_objective,agree,ti_wall_s,dj_wall_s,ti_status,dj_status
+4,43.0,43.0,True,0.042,0.0145,Optimal,Optimal
+5,54.0,54.0,True,0.0548,0.1621,Optimal,Optimal
+6,68.0,68.0,True,0.0653,0.2419,Optimal,Optimal

@@ -1,0 +1,7 @@
+﻿method,feasible,objective,violations
+FCFS,True,513.0,
+LPT,True,570.0,
+SPT,True,514.0,
+GREEDY,True,578.0,
+SA,False,,"constructive placement failed (no orientation of 4 placed all 12 vessels); the instance may still be feasible: quay-crane limit 2 can strand the greedy passes. Per-vessel diagnostics: V01(arrive 5, handle 6): earliest feasible by berth=['8', '16', '5'] | V02(arrive 16, handle 9): earliest feasible by berth=['32', '16', '24'] | V03(arrive 10, handle 12): earliest feasible by berth=['10', '16', '24'] | V04(arrive 17, handle 10): earliest feasible by berth=['32', '17', '24'] | V05(arrive 13, handle 8): earliest feasible by berth=['13', '16', '24'] | V06(arrive 22, handle 11): earliest feasible by berth=['32', '40', '24'] | V07(arrive 21, handle 12): earliest feasible by berth=['32', '40', '24'] | V08(arrive 20, handle 10): earliest feasible by berth=['32', '20', '24'] | V09(arrive 24, handle 10): earliest feasible by berth=['32', '40', '24'] | V10(arrive 2, handle 9): earliest feasible by berth=['8', '16', '2'] | V11(arrive 12, handle 5): earliest feasible by berth=['12', '16', '24'] | V12(arrive 11, handle 8): earliest feasible by berth=['11', '16', '24']"
+GA,True,496.0,

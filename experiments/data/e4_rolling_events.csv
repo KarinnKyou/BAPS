@@ -1,0 +1,16 @@
+﻿n_events,seed,requested_events,dt,perfect_objective,perfect_proved,rolling_objective,regret_pct,feasible,reoptimizations,violation,event_kinds
+2,0,2,8,313.0,True,313.0,0.0,True,9,,arrival_delay;handle_overrun
+2,1,2,8,315.0,True,315.0,0.0,True,9,,arrival_delay;handle_overrun
+2,2,2,8,313.0,True,313.0,0.0,True,9,,arrival_delay;handle_overrun
+2,3,2,8,313.0,True,313.0,0.0,True,9,,arrival_delay;handle_overrun
+2,4,2,8,313.0,True,313.0,0.0,True,9,,arrival_delay;handle_overrun
+4,0,4,8,319.0,True,319.0,0.0,True,9,,arrival_delay;arrival_delay;handle_overrun;tidal_shift
+4,1,4,8,315.0,True,315.0,0.0,True,9,,arrival_delay;arrival_delay;crane_loss;handle_overrun
+4,2,4,8,311.0,True,317.0,1.929,True,8,,arrival_delay;arrival_delay;handle_overrun;tidal_shift
+4,3,4,8,321.0,True,321.0,0.0,True,9,,arrival_delay;arrival_delay;tidal_shift;crane_loss
+4,4,4,8,319.0,True,322.0,0.94,True,9,,arrival_delay;arrival_delay;tidal_shift;handle_overrun
+6,0,6,8,320.0,True,320.0,0.0,True,9,,arrival_delay;arrival_delay;arrival_delay;tidal_shift;crane_loss;handle_overrun
+6,1,6,8,357.0,True,377.0,5.602,True,10,,arrival_delay;arrival_delay;arrival_delay;handle_overrun;crane_loss;handle_overrun
+6,2,6,8,339.0,True,339.0,0.0,True,9,,arrival_delay;arrival_delay;arrival_delay;handle_overrun;handle_overrun;tidal_shift
+6,3,6,8,323.0,True,323.0,0.0,True,9,,arrival_delay;arrival_delay;arrival_delay;handle_overrun;handle_overrun;crane_loss
+6,4,6,8,382.0,True,384.0,0.524,True,10,,arrival_delay;arrival_delay;arrival_delay;handle_overrun;tidal_shift;handle_overrun

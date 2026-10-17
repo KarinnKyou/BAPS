@@ -1,0 +1,5 @@
+﻿variant,milp,brute,agree,wall_s
+plain,15.0,15.0,True,0.0997
+release,33.0,33.0,True,0.1025
+unavailable,19.0,19.0,True,0.0542
+release+unavailable,36.0,36.0,True,0.0413

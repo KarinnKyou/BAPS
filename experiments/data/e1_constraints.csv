@@ -1,0 +1,5 @@
+﻿config,objective,feasible,proved_optimal,wall_s
+no_constraints,221.0,True,True,0.1445
+tidal_only,309.0,True,True,0.0431
+cranes_only,251.0,True,True,0.2406
+tidal_and_cranes,309.0,True,True,0.0991
