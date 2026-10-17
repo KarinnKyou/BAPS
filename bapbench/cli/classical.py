@@ -46,7 +46,7 @@ def _write_csv(path: Path, rows: list[dict]) -> None:
 
 def _pfsp_makespan(proc: list[list[int]], order: list[int]) -> int:
     """Makespan of a permutation flow shop, machine by machine."""
-    n, m = len(order), len(proc[0])
+    m = len(proc[0])
     done = [0] * m
     for j in order:
         t = 0
@@ -218,13 +218,18 @@ def job_shop(configs: list[tuple[int, int]], out: Path,
 
         search = job_shop_optimum([list(range(m)) for _ in range(n)], proc,
                                   time_budget=time_budget)
-        agree = (sch.feasible and search.objective is not None
+        # Only a completed search is an optimum; a run that hit its budget holds an
+        # upper bound, and comparing that as if it were the optimum would report a
+        # disagreement (or an agreement) the run has not shown.
+        completed = search.feasible and search.objective is not None
+        agree = (sch.feasible and completed
                  and abs(sch.objective - search.objective) < 1e-6)
         rows.append({
             "n": n, "m": m,
             "milp_C_max": sch.objective, "milp_feasible": sch.feasible,
             "independent_C_max": search.objective,
-            "agree_with_independent": agree if search.objective is not None else None,
+            "search_proved": completed,
+            "agree_with_independent": agree if completed else None,
             "search_nodes": search.nodes,
             "search_time_s": round(search.wall_time, 4),
             "search_note": search.note,

@@ -96,7 +96,12 @@ def benchmark_families() -> bool:
 
 
 def job_shop_agreement() -> bool:
-    """The job-shop MILP must match an exact search that uses no solver."""
+    """The job-shop MILP must match a solver-free exact search.
+
+    The search branches over active schedules (Giffler-Thompson), which contain an
+    optimal one, so its value is the optimum; a run that hits its budget is
+    reported as an upper bound and is not compared here.
+    """
     from ..models.classical import JobShopMILP, make_simple_problem, to_instance_view
 
     results = []
@@ -109,10 +114,11 @@ def job_shop_agreement() -> bool:
         proc = [[job.proc] * m for job in prob.jobs]
         search = job_shop_optimum([list(range(m)) for _ in range(n)], proc,
                                   time_budget=60.0)
-        ok = (milp.feasible and search.objective is not None
+        ok = (milp.feasible and search.feasible and search.objective is not None
               and abs(milp.objective - search.objective) < 1e-6)
-        results.append(check(f"job shop MILP matches exact search on {n}x{m}",
-                             ok, f"milp={milp.objective} search={search.objective}"))
+        results.append(check(f"job shop MILP matches the exact search on {n}x{m}",
+                             ok, f"milp={milp.objective} search={search.objective}"
+                                 + (f" ({search.note})" if search.note else "")))
     return all(results)
 
 
@@ -130,7 +136,8 @@ def main(argv: list[str] | None = None) -> int:
         ("objectives", "objective conventions", objective_definitions),
         ("bounds", "objective respects the arrival bound", bound_sanity),
         ("benchmarks", "known-optimum instance families", benchmark_families),
-        ("jobshop", "job shop against a solver-free exact search", job_shop_agreement),
+        ("jobshop", "job shop against a solver-free exact search",
+         job_shop_agreement),
     ]
 
     failures = 0
