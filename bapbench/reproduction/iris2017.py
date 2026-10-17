@@ -44,15 +44,21 @@ What could not be reproduced
   and were not extracted with the text. The operators and the search loop here
   follow the surrounding prose, which specifies them step by step; no
   pseudocode step was invented and then reported as the paper's.
-* The QC assignment layer. The paper's solution carries a detailed per-period QC
-  plan, and its two insertion operators differ exactly in how that plan is built
-  (Appendix A's ``q_hat, f1, f2`` and the "as much as possible" plan of Section
-  5.3.1). This package models quay cranes as a limit on simultaneously handled
-  vessels, with no per-vessel minimum/maximum crane counts and no per-period
-  plan, so there is no QC plan to construct or to repair. The insertion
-  operators are therefore separated by their candidate decision rule, which is
-  representable and checkable here. Both enforce the package's crane limit, so
-  every schedule returned is feasible under it.
+* The QC assignment layer, in *this* module. The paper's solution carries a
+  detailed per-period QC plan, and its two insertion operators differ exactly in
+  how that plan is built (Appendix A's ``q_hat, f1, f2`` and the "as much as
+  possible" plan of Section 5.3.1). This package's Instance models quay cranes as
+  a limit on simultaneously handled vessels, with no per-vessel minimum/maximum
+  crane counts and no per-period plan, so there is no QC plan to construct or to
+  repair here. The insertion operators are therefore separated by their candidate
+  decision rule, which is representable and checkable on this model. Both enforce
+  the package's crane limit, so every schedule returned is feasible under it.
+
+  The QC layer itself is implemented in `bapbench.reproduction.bacap`, which
+  carries the paper's own model: continuous berthing position, per-vessel crane
+  range, the Appendix A pattern and the per-period plan, and objective (1). This
+  module is the reduced-model version whose results are comparable with the rest
+  of the package, and `bacap` is where the paper's model is reproduced.
 * The paper's objective. ``min sum_i (c1_i dETA_i + c2_i dEFT_i + c3_i u_i +
   c4 sum_t sum_q q r_itq)`` is minimised here as the package's objective for the
   same vessel set (``sum_C`` or ``C_max``), because the paper's cost

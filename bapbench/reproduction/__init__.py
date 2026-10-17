@@ -3,10 +3,14 @@
 
 Each module here re-implements one paper's method on the package's own instance
 type, so the method can be compared against the exact models on identical data.
+`bacap` is the exception: it carries the paper's own model, including the
+continuous quay position and the per-period quay-crane plan, because those have no
+counterpart in `Instance`.
 """
 
 from __future__ import annotations
 
+from . import bacap
 from .comparison import compare_reproductions, imai_schedule, iris_schedule
 from .imai2001 import (
     INDIVIDUAL,
@@ -83,6 +87,7 @@ __all__ = [
     "SplitSchedule",
     "YalaouiSchedule",
     "alns",
+    "bacap",
     "compare_reproductions",
     "dbap_instance_from_instance",
     "evaluate",
