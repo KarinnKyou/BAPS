@@ -229,9 +229,11 @@ class RelaxedSolution:
     """An optimal solution of [P3] and the data needed to repair it.
 
     `order[i]` lists the ships at berth `i` by ascending position index, so
-    `order[i][k]` is the ship in position `k + 1` and the service sequence at that
-    berth is its reverse. `mu[i][j][k]` is `lambda_ijk`. The components of the
-    Lagrangian value are kept apart so a caller can see what the bound is made of.
+    `order[i][k]` is the ship in position `k + 1` and that is also the service
+    order: `representative_costs` prices position `k` at `k p[i][j]` and
+    `_starts_and_violation` lays it out at `S_i + k p`, so position 1 is the first
+    serviced. `mu[i][j][k]` is `lambda_ijk`. The components of the Lagrangian
+    value are kept apart so a caller can see what the bound is made of.
     """
 
     order: list[list[int]]
@@ -252,7 +254,7 @@ class RelaxedSolution:
 
     def sequence(self, i: int) -> list[int]:
         """The service order at berth `i`, first ship first."""
-        return list(reversed(self.order[i]))
+        return list(self.order[i])
 
 
 def _successor_penalty(mu_row: list[list[float]], n: int) -> list[list[float]]:
@@ -500,8 +502,28 @@ class FeasibleSolution:
 
 
 def service_order(order: list[list[int]]) -> list[list[int]]:
-    """Service sequences from position-indexed orders: position 1 is serviced first."""
-    return [list(reversed(seq)) for seq in order]
+    """Service sequences from position-indexed orders: position 1 is serviced first.
+
+    Ascending position index *is* the service order, so this copies rather than
+    reverses. It used to reverse, which was wrong on the module's own terms:
+    `representative_costs` prices the ship in position `k` at `k p[i][j]`, and
+    `_starts_and_violation` lays the positions out as `S_i + k p`, both of which
+    make position 1 the earliest. Reversing therefore produced a sequence whose
+    start times decreased along it -- not a schedule at all -- and turned SIMPLE
+    into the mirror image of the assignment [P3] chose, which is what the
+    repaired ships were then judged on.
+    """
+    return [list(seq) for seq in order]
+
+
+def relaxed_starts(relaxed: RelaxedSolution) -> list[list[int]]:
+    """Start times of [P3] laid out in service order.
+
+    `relaxed.start[i][k]` belongs to `relaxed.order[i][k]`, so it already lines up
+    with `service_order(relaxed.order)`; the returned copy keeps a repair from
+    mutating the relaxed solution it was built from.
+    """
+    return [list(row) for row in relaxed.start]
 
 
 def evaluate(inst: DBAPInstance, order: list[list[int]],
@@ -515,8 +537,8 @@ def earliest_starts(inst: DBAPInstance, order: list[list[int]]) -> list[list[int
     """Earliest feasible starts: `max(arrival, berth ready)` along each berth.
 
     This is the schedule SIMPLE produces -- no ship starts before it arrives and
-    each starts as soon as it and its berth are ready -- and the schedule
-    INDIVIDUAL and INTERACT recompute after every change.
+    each starts as soon as it and its berth are ready -- and the schedule INTERACT
+    recomputes after every change.
     """
     start = [[0] * len(seq) for seq in order]
     for i, seq in enumerate(order):
@@ -544,18 +566,40 @@ def simple(inst: DBAPInstance, relaxed: RelaxedSolution) -> FeasibleSolution:
                             procedure=SIMPLE)
 
 
-def _waiting_criterion(inst: DBAPInstance, order: list[list[int]],
-                       start: list[list[int]], berth: int, k_u: int,
+def _waiting_criterion(inst: DBAPInstance, seq: list[int],
+                       start: list[list[int]], berth: int, position: int,
                        cand: int) -> int:
-    """`W_j` of Eq. (26) for shifting `cand` immediately before `order[i][k_u]`.
+    """`W_j` of Eq. (26) for shifting `cand` immediately before `seq[position]`.
+
+    `seq` is the berth's own service sequence. It used to be typed as the whole
+    `order` and read as `seq = order[berth]`, but the only caller holds the
+    berth's sequence and passed it, so `order[berth]` was an int and `len(seq)`
+    would have raised TypeError the first time the criterion was reached --
+    which, because the caller's loop never ran, was never. Taking the sequence
+    directly removes the shape mismatch instead of relying on no caller
+    reaching it.
 
     `D_j`, the departure of the moved ship in its new position, is the start of
-    the ship it is placed before; `LU` is that unsatisfied ship `U` with its
-    successors at the berth, minus the ship being moved.
+    the ship it is placed before; `LU` is that ship with its successors at the
+    berth, minus the ship being moved.
     """
-    d_j = start[berth][k_u]
-    seq = order[berth]
-    return sum(d_j - inst.a[seq[m]] for m in range(k_u, len(seq)) if seq[m] != cand)
+    d_j = start[berth][position]
+    return sum(d_j - inst.a[seq[m]] for m in range(position, len(seq))
+               if seq[m] != cand)
+
+
+def _idle_before(inst: DBAPInstance, start: list[list[int]], seq: list[int],
+                 berth: int, position: int) -> int:
+    """Idle time immediately before `seq[position]` on `berth`.
+
+    Position 0 has the berth's own idle time as its predecessor, which the paper's
+    `S_i` covers rather than a preceding ship.
+    """
+    if position == 0:
+        return start[berth][0] - inst.s[berth]
+    previous = seq[position - 1]
+    return start[berth][position] - (start[berth][position - 1]
+                                     + inst.p[berth][previous])
 
 
 def _recompute_from(inst: DBAPInstance, start: list[list[int]],
@@ -575,6 +619,15 @@ def _repair_berth(inst: DBAPInstance, seq: list[int], start: list[list[int]],
     sequence, as the paper prescribes; every change recomputes the start times of
     the successors of the ship that was repaired, which is what can make later
     unsatisfied ships satisfied.
+
+    Steps 4-9 fill the idle period that Step 3 opens *before* `U`: the ship being
+    repaired is pushed to its arrival, so the gap appears between `U` and its
+    predecessor, and a later ship is shifted into the tail of that gap. Measuring
+    the gap after `U` instead made the loop condition `-p[U] <= 0`: it never ran,
+    INDIVIDUAL returned SIMPLE's schedule, and the `W_j` criterion was never
+    consulted. The loop keeps `position` on the ship being placed in front of, so
+    the gap shrinks from the right and each shifted ship departs exactly when the
+    ship after it starts -- which is what `D_j` in Eq. (26) means.
     """
     moved: set[int] = set()
     shifts = 0
@@ -589,31 +642,36 @@ def _repair_berth(inst: DBAPInstance, seq: list[int], start: list[list[int]],
         _recompute_from(inst, start, seq, berth, k_u)
 
         # Steps 4-9: fill the idle period Step 3 opened immediately before U.
-        while k_u + 1 < len(seq):
-            k = k_u + 1
-            idle = start[berth][k_u] - (start[berth][k - 1]
-                                        + inst.p[berth][seq[k - 1]])
+        position = k_u
+        while True:
+            occupant_start = start[berth][position]
+            idle = _idle_before(inst, start, seq, berth, position)
             if idle <= 0:
                 break
             best, best_w = None, None
-            for kk in range(k, len(seq)):
+            for kk in range(position + 1, len(seq)):
                 cand = seq[kk]
                 if cand in moved:
                     continue
-                if start[berth][k_u] - inst.p[berth][cand] < inst.a[cand]:
+                if inst.p[berth][cand] > idle:
+                    continue           # longer than the period it would fill
+                if occupant_start - inst.p[berth][cand] < inst.a[cand]:
                     continue           # would still start before its arrival
-                w = _waiting_criterion(inst, seq, start, berth, k_u, cand)
+                w = _waiting_criterion(inst, seq, start, berth, position, cand)
                 if best_w is None or w < best_w:
                     best, best_w = cand, w
             if best is None:
                 break
-            # Step 8: shift it immediately before U, then go back to Step 4.
+            # Step 8: shift it immediately before the occupant, then go back to
+            # Step 4. The moved ship takes the tail of the idle period, so the
+            # ship it precedes is not delayed, and the recomputation starts after
+            # it rather than resetting it to its earliest possible start.
             seq.remove(best)
-            seq.insert(k_u, best)
+            seq.insert(position, best)
             moved.add(best)
             shifts += 1
-            start[berth][k_u] = max(start[berth][k_u], inst.a[best])
-            _recompute_from(inst, start, seq, berth, k_u)
+            start[berth][position] = occupant_start - inst.p[berth][best]
+            _recompute_from(inst, start, seq, berth, position + 1)
         k_u += 1
     return shifts
 
@@ -621,19 +679,26 @@ def _repair_berth(inst: DBAPInstance, seq: list[int], start: list[list[int]],
 def individual(inst: DBAPInstance, relaxed: RelaxedSolution) -> FeasibleSolution:
     """The paper's INDIVIDUAL process.
 
-    SIMPLE's schedule first, then, at each berth where an idle period was created
-    before an unsatisfied ship, the successor with the smallest `W_j` that still
-    starts after its own arrival is shifted into that idle period, as often as
-    the idle period and the arrivals allow. No ship changes berth.
+    The repair starts from [P3]'s own start times, not from SIMPLE's: SIMPLE has
+    already postponed every ship to its arrival, so a schedule that starts there
+    has no unsatisfied ship left to repair and Steps 4-9 have nothing to act on --
+    which is one of the two reasons this procedure used to return SIMPLE's
+    schedule unchanged. Step 3 then postpones each ship the relaxation started
+    before its arrival, and at each berth the successor with the smallest `W_j`
+    that still starts after its own arrival is shifted into the idle period that
+    postponement opened, as often as the idle period and the arrivals allow. No
+    ship changes berth.
     """
     order = service_order(relaxed.order)
-    start = earliest_starts(inst, order)
-    baseline = evaluate(inst, order, start)
+    start = relaxed_starts(relaxed)
+    baseline = evaluate(inst, order, earliest_starts(inst, order))
     shifts = sum(_repair_berth(inst, order[i], start, i) for i in range(inst.m))
     if evaluate(inst, order, start) > baseline:
         # Eq. (26) is a proxy for the waiting a shift creates; the paper does not
         # say what to do when it points the other way, so a sequence of shifts
-        # that ends up worse than SIMPLE's schedule is discarded.
+        # that ends up worse than SIMPLE's schedule is discarded -- and discarding
+        # it means restoring the sequence as well as the start times, since the
+        # repair reorders the berths it works on.
         order = service_order(relaxed.order)
         start = earliest_starts(inst, order)
     return FeasibleSolution(order=order, start=start,

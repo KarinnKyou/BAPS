@@ -248,20 +248,60 @@ def test_interact_moves_ships_between_berths_without_worsening():
     assert after.ships_moved >= 0
 
 
+def test_individual_fills_the_idle_period_step_3_opens():
+    """Steps 4-9 must run: the idle is the one *before* U, and a later ship takes
+    its tail without delaying U.
+
+    Regression for a repair that measured the gap after U instead, where the loop
+    condition was `-p[U] <= 0` and INDIVIDUAL silently returned SIMPLE's schedule.
+    """
+    from bapbench.reproduction.imai2001 import _repair_berth
+
+    # One berth: A at 0 for 5 periods, U arrives at 20, C arrives at 5 for 6.
+    # SIMPLE leaves A[0,5), U[10,14) -- before its arrival -- and C[30,36).
+    inst = DBAPInstance(p=[[5, 4, 6]], a=[0, 20, 5], s=[0])
+    seq = [0, 1, 2]
+    start = [[0, 10, 30]]
+    shifts = _repair_berth(inst, seq, start, 0)
+    assert shifts == 1
+    assert seq == [0, 2, 1], "C was not shifted in front of U"
+    assert start[0] == [0, 14, 20], "C must end when U starts; U must not slip"
+
+
+def test_individual_is_a_repair_and_not_a_synonym_for_simple():
+    """INDIVIDUAL must be able to improve on SIMPLE on at least one instance.
+
+    With the idle period read on the wrong side of U it never shifted a ship, so
+    its objective equalled SIMPLE's on every instance and the comparison table
+    carried two identical rows.
+    """
+    improved = 0
+    for seed in range(12):
+        inst = _random_instance(random.Random(seed * 13 + 5), 6, 2)
+        relaxed = solve_relaxation(inst, zero_multipliers(inst))
+        base = simple(inst, relaxed)
+        repaired = individual(inst, relaxed)
+        assert repaired.objective <= base.objective
+        if repaired.objective < base.objective:
+            improved += 1
+    assert improved >= 1, ("INDIVIDUAL never improved on SIMPLE, so Steps 4-9 "
+                           "are not running")
+
+
 def test_waiting_criterion_is_the_sum_of_the_successors_gaps():
     """Eq. (26): `W_j = sum_{j' in LU} (D_j - A_j')` with `LU` U and successors."""
     from bapbench.reproduction.imai2001 import _waiting_criterion
     inst = DBAPInstance(p=[[3, 3, 3]], a=[0, 5, 9], s=[0])
-    order = [[0, 1, 2]]
+    seq = [0, 1, 2]
     start = [[0, 3, 6]]
     # U is ship 1, whose start is 3; the only successor is ship 2. Moving ship 2
     # immediately before U puts its departure at U's start, and LU is {1, 2}
     # minus ship 2, so W = 3 - A_1 = -2.
-    assert _waiting_criterion(inst, order, start, 0, 1, 2) == start[0][1] - inst.a[1]
+    assert _waiting_criterion(inst, seq, start, 0, 1, 2) == start[0][1] - inst.a[1]
     # With LU kept as U and its successors, a candidate further down the sequence
     # compares against the same departure, so W does not depend on `cand` except
     # through which arrival is left out of the sum.
-    assert _waiting_criterion(inst, order, start, 0, 1, 1) == start[0][1] - inst.a[2]
+    assert _waiting_criterion(inst, seq, start, 0, 1, 1) == start[0][1] - inst.a[2]
 
 
 def test_unknown_procedure_is_rejected():
